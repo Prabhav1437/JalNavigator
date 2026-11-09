@@ -1,19 +1,30 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const prisma = require('../database');
 
-router.get('/', (req, res) => {
-  res.json(db.alerts);
+router.get('/', async (req, res) => {
+  try {
+    const alerts = await prisma.alert.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(alerts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.put('/:id', (req, res) => {
-  const alertId = parseInt(req.params.id, 10);
-  const index = db.alerts.findIndex(a => a.id === alertId);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Alert not found' });
+router.put('/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { status } = req.body;
+    const alert = await prisma.alert.update({
+      where: { id },
+      data: { status }
+    });
+    res.json(alert);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  db.alerts[index] = { ...db.alerts[index], ...req.body, id: alertId };
-  res.json(db.alerts[index]);
 });
 
 module.exports = router;

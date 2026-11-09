@@ -1,8 +1,5 @@
-const db = {
-  assets: [],
-  complaints: [],
-  sensorReadings: [],
-  alerts: []
-};
+const { PrismaClient } = require('@prisma/client');
 
-module.exports = db;
+const prisma = new PrismaClient();
+
+module.exports = prisma;

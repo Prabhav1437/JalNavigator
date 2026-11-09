@@ -1,35 +1,49 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const prisma = require('../database');
 
-router.get('/', (req, res) => {
-  res.json(db.complaints);
-});
-
-router.post('/', (req, res) => {
-  const { title, category, description, latitude, longitude } = req.body;
-  const newComplaint = {
-    id: Date.now(),
-    title: title || '',
-    category: category || 'Other',
-    description: description || '',
-    latitude: latitude ? parseFloat(latitude) : null,
-    longitude: longitude ? parseFloat(longitude) : null,
-    status: 'Pending',
-    createdAt: new Date().toISOString()
-  };
-  db.complaints.push(newComplaint);
-  res.status(201).json(newComplaint);
-});
-
-router.put('/:id', (req, res) => {
-  const complaintId = parseInt(req.params.id, 10);
-  const index = db.complaints.findIndex(c => c.id === complaintId);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Complaint not found' });
+router.get('/', async (req, res) => {
+  try {
+    const complaints = await prisma.complaint.findMany({
+      orderBy: { createdAt: 'desc' }
+    });
+    res.json(complaints);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  db.complaints[index] = { ...db.complaints[index], ...req.body, id: complaintId };
-  res.json(db.complaints[index]);
+});
+
+router.post('/', async (req, res) => {
+  try {
+    const { title, category, description, latitude, longitude } = req.body;
+    const complaint = await prisma.complaint.create({
+      data: {
+        title: title || '',
+        category: category || 'Other',
+        description: description || '',
+        latitude: latitude ? parseFloat(latitude) : null,
+        longitude: longitude ? parseFloat(longitude) : null,
+        status: 'Pending'
+      }
+    });
+    res.status(201).json(complaint);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.put('/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { status } = req.body;
+    const complaint = await prisma.complaint.update({
+      where: { id },
+      data: { status }
+    });
+    res.json(complaint);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

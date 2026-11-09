@@ -1,40 +1,50 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const prisma = require('../database');
 
-router.get('/', (req, res) => {
-  res.json(db.sensorReadings);
+router.get('/', async (req, res) => {
+  try {
+    const readings = await prisma.sensorReading.findMany({
+      take: 50,
+      orderBy: { recordedAt: 'desc' }
+    });
+    res.json(readings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-router.post('/simulate', (req, res) => {
-  const assetId = parseInt(req.body.assetId, 10) || 1;
-  const waterLevel = Math.floor(Math.random() * 100);
-  const flowRate = parseFloat((Math.random() * 20).toFixed(1));
-  const pressure = parseFloat((Math.random() * 3).toFixed(1));
-  const recordedAt = new Date().toISOString();
+router.post('/simulate', async (req, res) => {
+  try {
+    const assetId = parseInt(req.body.assetId, 10) || 1;
+    const waterLevel = Math.floor(Math.random() * 100);
+    const flowRate = parseFloat((Math.random() * 20).toFixed(1));
+    const pressure = parseFloat((Math.random() * 3).toFixed(1));
 
-  const reading = {
-    id: Date.now(),
-    assetId,
-    waterLevel,
-    flowRate,
-    pressure,
-    recordedAt
-  };
-  db.sensorReadings.push(reading);
-
-  if (waterLevel < 20) {
-    db.alerts.push({
-      id: Date.now() + 1,
-      assetId,
-      message: `Low water level (${waterLevel}%) detected`,
-      severity: 'Critical',
-      status: 'Open',
-      createdAt: recordedAt
+    const reading = await prisma.sensorReading.create({
+      data: {
+        assetId,
+        waterLevel,
+        flowRate,
+        pressure
+      }
     });
-  }
 
-  res.status(201).json(reading);
+    if (waterLevel < 20) {
+      await prisma.alert.create({
+        data: {
+          assetId,
+          message: `Low water level (${waterLevel}%) detected`,
+          severity: 'Critical',
+          status: 'Open'
+        }
+      });
+    }
+
+    res.status(201).json(reading);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

@@ -1,44 +1,66 @@
 const express = require('express');
 const router = express.Router();
-const db = require('../database');
+const prisma = require('../database');
 
-router.get('/', (req, res) => {
-  res.json(db.assets);
-});
-
-router.post('/', (req, res) => {
-  const { name, type, latitude, longitude, status, village } = req.body;
-  const newAsset = {
-    id: Date.now(),
-    name: name || '',
-    type: type || 'tank',
-    latitude: parseFloat(latitude) || 0,
-    longitude: parseFloat(longitude) || 0,
-    status: status || 'Operational',
-    village: village || ''
-  };
-  db.assets.push(newAsset);
-  res.status(201).json(newAsset);
-});
-
-router.put('/:id', (req, res) => {
-  const assetId = parseInt(req.params.id, 10);
-  const index = db.assets.findIndex(a => a.id === assetId);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Asset not found' });
+router.get('/', async (req, res) => {
+  try {
+    const assets = await prisma.asset.findMany();
+    res.json(assets);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  db.assets[index] = { ...db.assets[index], ...req.body, id: assetId };
-  res.json(db.assets[index]);
 });
 
-router.delete('/:id', (req, res) => {
-  const assetId = parseInt(req.params.id, 10);
-  const index = db.assets.findIndex(a => a.id === assetId);
-  if (index === -1) {
-    return res.status(404).json({ error: 'Asset not found' });
+router.post('/', async (req, res) => {
+  try {
+    const { name, type, latitude, longitude, status, village } = req.body;
+    const asset = await prisma.asset.create({
+      data: {
+        name: name || '',
+        type: type || 'tank',
+        latitude: parseFloat(latitude) || 0,
+        longitude: parseFloat(longitude) || 0,
+        status: status || 'Operational',
+        village: village || ''
+      }
+    });
+    res.status(201).json(asset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  db.assets.splice(index, 1);
-  res.json({ message: 'Asset deleted successfully', id: assetId });
+});
+
+router.put('/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const { name, type, latitude, longitude, status, village } = req.body;
+    const asset = await prisma.asset.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(type !== undefined && { type }),
+        ...(latitude !== undefined && { latitude: parseFloat(latitude) }),
+        ...(longitude !== undefined && { longitude: parseFloat(longitude) }),
+        ...(status !== undefined && { status }),
+        ...(village !== undefined && { village })
+      }
+    });
+    res.json(asset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:id', async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    await prisma.asset.delete({
+      where: { id }
+    });
+    res.json({ message: 'Asset deleted successfully', id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
