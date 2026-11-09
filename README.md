@@ -11,30 +11,39 @@ JalNavigator is a web application designed to help rural water authorities view,
 - **Water Monitoring:** Simulated IoT sensor readings (water level, flow rate, pressure) and threshold alerts.
 - **Complaint Management:** Citizen grievance submission and status tracking (Pending, In Progress, Resolved).
 
+## Tech Stack
+
+- **Frontend:** HTML5, CSS3, Vanilla JavaScript, Leaflet, Chart.js
+- **Backend:** Node.js, Express.js
+- **Database & ORM:** PostgreSQL with Prisma ORM
+
 ## Project Structure
 
 ```
 jalnavigator/
 ├── backend/
-│   ├── server.js
+│   ├── prisma/
+│   │   └── schema.prisma
+│   ├── routes/
+│   │   ├── dashboard.js
+│   │   ├── assets.js
+│   │   ├── complaints.js
+│   │   ├── sensors.js
+│   │   └── alerts.js
+│   ├── .env.example
 │   ├── database.js
 │   ├── package.json
-│   └── routes/
-│       ├── dashboard.js
-│       ├── assets.js
-│       ├── complaints.js
-│       ├── sensors.js
-│       └── alerts.js
+│   └── server.js
 ├── frontend/
-│   ├── index.html
 │   ├── css/
 │   │   └── style.css
-│   └── js/
-│       ├── app.js
-│       ├── dashboard.js
-│       ├── map.js
-│       ├── monitoring.js
-│       └── complaints.js
+│   ├── js/
+│   │   ├── app.js
+│   │   ├── dashboard.js
+│   │   ├── map.js
+│   │   ├── monitoring.js
+│   │   └── complaints.js
+│   └── index.html
 ├── .gitignore
 ├── agents.md
 └── README.md
@@ -44,8 +53,9 @@ jalnavigator/
 
 ### Prerequisites
 
-- Node.js (v16+)
+- Node.js (v18+)
 - npm
+- PostgreSQL database
 
 ### Installation & Run
 
@@ -54,17 +64,28 @@ jalnavigator/
    cd backend
    ```
 
-2. Install dependencies:
+2. Copy environment file and set your database connection:
+   ```bash
+   cp .env.example .env
+   ```
+
+3. Install dependencies:
    ```bash
    npm install
    ```
 
-3. Start the server:
+4. Generate Prisma client and run migrations:
+   ```bash
+   npx prisma generate
+   npx prisma migrate dev --name init
+   ```
+
+5. Start the server:
    ```bash
    npm start
    ```
 
-4. Open your browser and navigate to:
+6. Open your browser:
    ```
    http://localhost:3000
    ```

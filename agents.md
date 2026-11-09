@@ -10,12 +10,20 @@ That document contains the complete Product Requirements Document (PRD), specifi
 ## Project Overview
 
 JalNavigator is a lightweight web application designed for rural drinking-water infrastructure mapping and monitoring.
-It includes:
-- GIS mapping of water assets using Leaflet and OpenStreetMap.
-- Asset management (tanks, borewells, pumps, pipelines).
-- Simulated sensor monitoring and automated alert generation.
+It combines:
+- GIS mapping of water infrastructure assets using Leaflet and OpenStreetMap.
+- Asset management (water tanks, borewells, pumps, pipelines).
+- Simulated IoT sensor monitoring (water level, flow rate, pressure) and threshold alerts.
 - Citizen grievance registration and status tracking.
 - Central administrator dashboard.
+
+---
+
+## Technology Stack
+
+- **Frontend:** HTML5, CSS3, Vanilla JavaScript, Leaflet, OpenStreetMap, Chart.js
+- **Backend:** Node.js, Express.js
+- **Database & ORM:** PostgreSQL with Prisma ORM
 
 ---
 
@@ -23,9 +31,10 @@ It includes:
 
 1. **No Comments in Code:** Do not include comments (`//`, `/* */`, `<!-- -->`, `#`) anywhere in the code across any file. The code must be self-explanatory, clean, and concise.
 2. **Simplicity First:** Keep the implementation simple and direct. Avoid premature optimizations, complex abstractions, or heavy external frameworks.
-3. **Vanilla Frontend:** Use standard HTML5, CSS3, and modern vanilla JavaScript without frontend build tools or bundlers.
-4. **Express Backend:** Modular REST API endpoints organized under `backend/routes/`.
-5. **No Physical Hardware:** All IoT sensor values and alerts are strictly simulated for demonstration purposes.
+3. **Prisma ORM:** All database access must go through Prisma Client. Database models are defined in `backend/prisma/schema.prisma`.
+4. **Vanilla Frontend:** Use standard HTML5, CSS3, and modern vanilla JavaScript without frontend build tools or bundlers.
+5. **Modular Express Backend:** REST API endpoints organized under `backend/routes/`.
+6. **Simulated IoT:** All IoT sensor values and alerts are strictly simulated for demonstration purposes and clearly distinguished from real data.
 
 ---
 
@@ -34,29 +43,41 @@ It includes:
 ```
 jalnavigator/
 ├── backend/
-│   ├── server.js
+│   ├── prisma/
+│   │   └── schema.prisma
+│   ├── routes/
+│   │   ├── dashboard.js
+│   │   ├── assets.js
+│   │   ├── complaints.js
+│   │   ├── sensors.js
+│   │   └── alerts.js
+│   ├── .env.example
 │   ├── database.js
 │   ├── package.json
-│   └── routes/
-│       ├── dashboard.js
-│       ├── assets.js
-│       ├── complaints.js
-│       ├── sensors.js
-│       └── alerts.js
+│   └── server.js
 ├── frontend/
-│   ├── index.html
 │   ├── css/
 │   │   └── style.css
-│   └── js/
-│       ├── app.js
-│       ├── dashboard.js
-│       ├── map.js
-│       ├── monitoring.js
-│       └── complaints.js
+│   ├── js/
+│   │   ├── app.js
+│   │   ├── dashboard.js
+│   │   ├── map.js
+│   │   ├── monitoring.js
+│   │   └── complaints.js
+│   └── index.html
 ├── .gitignore
 ├── agents.md
 └── README.md
 ```
+
+---
+
+## Database Models (Prisma)
+
+- **Asset:** `id`, `name`, `type`, `latitude`, `longitude`, `status`, `village`, `sensorReadings`, `alerts`
+- **Complaint:** `id`, `title`, `category`, `description`, `latitude`, `longitude`, `status`, `createdAt`
+- **SensorReading:** `id`, `assetId`, `waterLevel`, `flowRate`, `pressure`, `recordedAt`, `asset`
+- **Alert:** `id`, `assetId`, `message`, `severity`, `status`, `createdAt`, `asset`
 
 ---
 
@@ -73,12 +94,4 @@ jalnavigator/
 - `GET /api/sensors` - Fetch latest sensor readings.
 - `POST /api/sensors/simulate` - Generate simulated sensor readings.
 - `GET /api/alerts` - List active alerts.
-
----
-
-## Core Entities
-
-- **Asset:** `id`, `name`, `type`, `latitude`, `longitude`, `status`, `village`
-- **Complaint:** `id`, `title`, `category`, `description`, `latitude`, `longitude`, `status`, `created_at`
-- **Sensor Reading:** `id`, `asset_id`, `water_level`, `flow_rate`, `pressure`, `recorded_at`
-- **Alert:** `id`, `asset_id`, `message`, `severity`, `status`, `created_at`
+- `PUT /api/alerts/:id` - Update alert status (Open, Resolved).
