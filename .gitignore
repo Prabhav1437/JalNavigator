@@ -1,0 +1,7 @@
+node_modules/
+.env
+.DS_Store
+*.db
+*.db-journal
+JalNavigator_PRD.md
+*PRD*
