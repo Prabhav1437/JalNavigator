@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>JalNavigator - Water Supply Mapping & Monitoring</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">
+        <h2>JalNavigator</h2>
+        <span>Rural Water System</span>
+      </div>
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="dashboard">Dashboard</button>
+        <button class="nav-item" data-tab="map">Infrastructure Map</button>
+        <button class="nav-item" data-tab="monitoring">Water Monitoring</button>
+        <button class="nav-item" data-tab="complaints">Complaints</button>
+      </nav>
+    </aside>
+
+    <main class="content">
+      <section id="dashboard" class="tab-pane active">
+        <header class="section-header">
+          <h1>Admin Dashboard</h1>
+        </header>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <h3>Water Tanks</h3>
+            <p id="stat-tanks">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Borewells</h3>
+            <p id="stat-borewells">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Pipelines</h3>
+            <p id="stat-pipelines">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Total Complaints</h3>
+            <p id="stat-complaints">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Pending Complaints</h3>
+            <p id="stat-pending">0</p>
+          </div>
+          <div class="stat-card">
+            <h3>Unresolved Alerts</h3>
+            <p id="stat-alerts">0</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="map" class="tab-pane">
+        <header class="section-header">
+          <h1>Infrastructure GIS Map</h1>
+        </header>
+        <div class="map-controls">
+          <button id="add-asset-btn" class="btn primary">Add Water Asset</button>
+        </div>
+        <div id="map-container"></div>
+      </section>
+
+      <section id="monitoring" class="tab-pane">
+        <header class="section-header">
+          <h1>Water Monitoring (Simulated)</h1>
+        </header>
+        <div class="monitoring-actions">
+          <button id="simulate-btn" class="btn primary">Simulate Sensor Reading</button>
+        </div>
+        <div id="monitoring-readings" class="card-list"></div>
+      </section>
+
+      <section id="complaints" class="tab-pane">
+        <header class="section-header">
+          <h1>Grievance & Complaint Management</h1>
+        </header>
+        <form id="complaint-form" class="simple-form">
+          <input type="text" id="complaint-title" placeholder="Complaint Title" required>
+          <select id="complaint-category">
+            <option value="No water supply">No water supply</option>
+            <option value="Pipeline leakage">Pipeline leakage</option>
+            <option value="Dirty water">Dirty water</option>
+            <option value="Low water pressure">Low water pressure</option>
+            <option value="Damaged infrastructure">Damaged infrastructure</option>
+            <option value="Other">Other</option>
+          </select>
+          <textarea id="complaint-desc" placeholder="Problem Description" rows="3" required></textarea>
+          <button type="submit" class="btn primary">Submit Complaint</button>
+        </form>
+        <div id="complaints-list" class="card-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/map.js"></script>
+  <script src="js/monitoring.js"></script>
+  <script src="js/complaints.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
