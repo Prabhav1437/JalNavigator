@@ -7,13 +7,13 @@ JalNavigator is a web application designed to help rural water authorities view,
 ## Modules
 
 - **Dashboard:** Centralized operational overview with infrastructure and complaint statistics.
-- **GIS Map:** Interactive map displaying water infrastructure assets (tanks, borewells, pumps, pipelines).
+- **GIS Map:** Interactive Leaflet map displaying water infrastructure assets (tanks, borewells, pumps, pipelines).
 - **Water Monitoring:** Simulated IoT sensor readings (water level, flow rate, pressure) and threshold alerts.
 - **Complaint Management:** Citizen grievance submission and status tracking (Pending, In Progress, Resolved).
 
 ## Tech Stack
 
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript, Leaflet, Chart.js
+- **Frontend:** React 19, Vite, Leaflet, CSS3
 - **Backend:** Node.js, Express.js
 - **Database & ORM:** PostgreSQL with Prisma ORM
 
@@ -36,15 +36,18 @@ jalnavigator/
 │   ├── package.json
 │   └── server.js
 ├── frontend/
-│   ├── css/
-│   │   └── style.css
-│   ├── js/
-│   │   ├── app.js
-│   │   ├── dashboard.js
-│   │   ├── map.js
-│   │   ├── monitoring.js
-│   │   └── complaints.js
-│   └── index.html
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── MapView.jsx
+│   │   │   ├── Monitoring.jsx
+│   │   │   └── Complaints.jsx
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.js
 ├── .gitignore
 ├── agents.md
 └── README.md
@@ -58,39 +61,38 @@ jalnavigator/
 - npm
 - PostgreSQL database
 
-### Installation & Run
+### 1. Backend Setup
 
-1. Navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
+```bash
+cd backend
+cp .env.example .env
+npm install
+npx prisma db push
+npm run seed
+npm start
+```
 
-2. Copy environment file and set your database connection:
-   ```bash
-   cp .env.example .env
-   ```
+### 2. Frontend Development Setup
 
-3. Install dependencies:
-   ```bash
-   npm install
-   ```
+In a new terminal:
 
-4. Generate Prisma client and push schema:
-   ```bash
-   npx prisma db push
-   ```
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
-5. Seed sample demonstration data:
-   ```bash
-   npm run seed
-   ```
+Open `http://localhost:5173` for Vite hot-module reloading with API proxy to the backend.
 
-6. Start the server:
-   ```bash
-   npm start
-   ```
+### 3. Production Build
 
-7. Open your browser:
-   ```
-   http://localhost:3000
-   ```
+To build the React application for Express production serving:
+
+```bash
+cd frontend
+npm run build
+cd ../backend
+npm start
+```
+
+Open `http://localhost:3000`.

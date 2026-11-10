@@ -21,7 +21,7 @@ It combines:
 
 ## Technology Stack
 
-- **Frontend:** HTML5, CSS3, Vanilla JavaScript, Leaflet, OpenStreetMap, Chart.js
+- **Frontend:** React, Vite, CSS3, Leaflet, OpenStreetMap
 - **Backend:** Node.js, Express.js
 - **Database & ORM:** PostgreSQL with Prisma ORM
 
@@ -32,7 +32,7 @@ It combines:
 1. **No Comments in Code:** Do not include comments (`//`, `/* */`, `<!-- -->`, `#`) anywhere in the code across any file. The code must be self-explanatory, clean, and concise.
 2. **Simplicity First:** Keep the implementation simple and direct. Avoid premature optimizations, complex abstractions, or heavy external frameworks.
 3. **Prisma ORM:** All database access must go through Prisma Client. Database models are defined in `backend/prisma/schema.prisma`.
-4. **Vanilla Frontend:** Use standard HTML5, CSS3, and modern vanilla JavaScript without frontend build tools or bundlers.
+4. **React Frontend:** Use clean functional components with standard React hooks (`useState`, `useEffect`, `useRef`) and Vite without unnecessary state management libraries.
 5. **Modular Express Backend:** REST API endpoints organized under `backend/routes/`.
 6. **Simulated IoT:** All IoT sensor values and alerts are strictly simulated for demonstration purposes and clearly distinguished from real data.
 
@@ -57,15 +57,18 @@ jalnavigator/
 │   ├── package.json
 │   └── server.js
 ├── frontend/
-│   ├── css/
-│   │   └── style.css
-│   ├── js/
-│   │   ├── app.js
-│   │   ├── dashboard.js
-│   │   ├── map.js
-│   │   ├── monitoring.js
-│   │   └── complaints.js
-│   └── index.html
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── MapView.jsx
+│   │   │   ├── Monitoring.jsx
+│   │   │   └── Complaints.jsx
+│   │   ├── App.css
+│   │   ├── App.jsx
+│   │   └── main.jsx
+│   ├── index.html
+│   ├── package.json
+│   └── vite.config.js
 ├── .gitignore
 ├── agents.md
 └── README.md
