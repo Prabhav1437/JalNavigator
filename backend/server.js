@@ -13,13 +13,20 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../frontend')));
+app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/complaints', complaintsRoutes);
 app.use('/api/sensors', sensorsRoutes);
 app.use('/api/alerts', alertsRoutes);
+
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api')) return next();
+  res.sendFile(path.join(__dirname, '../frontend/dist/index.html'), (err) => {
+    if (err) next();
+  });
+});
 
 app.listen(PORT, () => {
   console.log(`JalNavigator running on http://localhost:${PORT}`);

@@ -3,5 +3,6 @@ node_modules/
 .DS_Store
 *.db
 *.db-journal
+dist/
 JalNavigator_PRD.md
 *PRD*
