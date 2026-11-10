@@ -37,5 +37,10 @@ document.addEventListener('DOMContentLoaded', () => {
     complaintForm.addEventListener('submit', submitComplaint);
   }
 
+  const complaintFilter = document.getElementById('complaint-filter-status');
+  if (complaintFilter) {
+    complaintFilter.addEventListener('change', loadComplaints);
+  }
+
   loadDashboard();
 });

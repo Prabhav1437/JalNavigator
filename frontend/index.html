@@ -26,7 +26,9 @@
       <section id="dashboard" class="tab-pane active">
         <header class="section-header">
           <h1>Admin Dashboard</h1>
+          <p class="subtitle">Central operational overview of rural drinking water infrastructure</p>
         </header>
+
         <div class="stats-grid">
           <div class="stat-card">
             <h3>Water Tanks</h3>
@@ -53,46 +55,199 @@
             <p id="stat-alerts">0</p>
           </div>
         </div>
+
+        <div class="dashboard-columns">
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3>Active Alerts</h3>
+              <span class="badge badge-critical" id="dash-alerts-count">0</span>
+            </div>
+            <div id="dash-alerts-list" class="card-list"></div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3>Recent Complaints</h3>
+              <span class="badge badge-pending" id="dash-complaints-count">0</span>
+            </div>
+            <div id="dash-complaints-list" class="card-list"></div>
+          </div>
+        </div>
       </section>
 
       <section id="map" class="tab-pane">
         <header class="section-header">
           <h1>Infrastructure GIS Map</h1>
+          <p class="subtitle">Interactive spatial mapping of village water network assets</p>
         </header>
-        <div class="map-controls">
-          <button id="add-asset-btn" class="btn primary">Add Water Asset</button>
+
+        <div class="map-toolbar">
+          <div class="toolbar-filters">
+            <select id="map-filter-type" class="form-control">
+              <option value="">All Asset Types</option>
+              <option value="tank">Water Tanks</option>
+              <option value="borewell">Borewells</option>
+              <option value="pump">Pumps</option>
+              <option value="pipeline">Pipelines</option>
+            </select>
+            <input type="text" id="map-filter-village" class="form-control" placeholder="Filter by village...">
+          </div>
+          <button id="toggle-asset-form-btn" class="btn primary">+ Add Water Asset</button>
         </div>
-        <div id="map-container"></div>
+
+        <form id="add-asset-form" class="panel-form hidden">
+          <div class="panel-header">
+            <h3>Register New Water Asset</h3>
+            <span class="panel-hint">Click anywhere on the map to set coordinates automatically</span>
+          </div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Asset Name</label>
+              <input type="text" id="asset-name" placeholder="e.g. Ward 4 Overhead Tank" required>
+            </div>
+            <div class="form-group">
+              <label>Asset Type</label>
+              <select id="asset-type">
+                <option value="tank">Water Tank</option>
+                <option value="borewell">Borewell</option>
+                <option value="pump">Pump</option>
+                <option value="pipeline">Pipeline</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Village</label>
+              <input type="text" id="asset-village" placeholder="e.g. Rampur" required>
+            </div>
+            <div class="form-group">
+              <label>Latitude</label>
+              <input type="number" step="any" id="asset-lat" placeholder="e.g. 26.8467" required>
+            </div>
+            <div class="form-group">
+              <label>Longitude</label>
+              <input type="number" step="any" id="asset-lng" placeholder="e.g. 80.9462" required>
+            </div>
+            <div class="form-group">
+              <label>Initial Status</label>
+              <select id="asset-status">
+                <option value="Operational">Operational</option>
+                <option value="Maintenance">Maintenance</option>
+                <option value="Inactive">Inactive</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn primary">Save Asset</button>
+            <button type="button" id="cancel-asset-btn" class="btn secondary">Cancel</button>
+          </div>
+        </form>
+
+        <div class="map-wrapper">
+          <div id="map-container"></div>
+          <div class="map-legend">
+            <h4>Map Legend</h4>
+            <div class="legend-item"><span class="legend-color marker-tank"></span> Water Tank</div>
+            <div class="legend-item"><span class="legend-color marker-borewell"></span> Borewell</div>
+            <div class="legend-item"><span class="legend-color marker-pump"></span> Pump</div>
+            <div class="legend-item"><span class="legend-color marker-pipeline"></span> Pipeline</div>
+          </div>
+        </div>
       </section>
 
       <section id="monitoring" class="tab-pane">
         <header class="section-header">
           <h1>Water Monitoring (Simulated)</h1>
+          <p class="subtitle">Telemetry parameters and threshold abnormality alerts</p>
         </header>
-        <div class="monitoring-actions">
-          <button id="simulate-btn" class="btn primary">Simulate Sensor Reading</button>
+
+        <div class="notice-banner">
+          <strong>Simulated Environment:</strong> All sensor telemetry and alert notifications are strictly simulated for demonstration purposes.
         </div>
-        <div id="monitoring-readings" class="card-list"></div>
+
+        <div class="monitoring-toolbar">
+          <div class="toolbar-group">
+            <label>Target Asset:</label>
+            <select id="simulate-asset-select" class="form-control">
+              <option value="">Auto Select First Asset</option>
+            </select>
+          </div>
+          <button id="simulate-btn" class="btn primary">Simulate New Telemetry</button>
+        </div>
+
+        <div class="monitoring-columns">
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3>System Alerts</h3>
+              <span id="alerts-count-badge" class="badge badge-critical">0</span>
+            </div>
+            <div id="monitoring-alerts-list" class="card-list"></div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-header">
+              <h3>Sensor Readings Stream</h3>
+              <span id="readings-count-badge" class="badge badge-info">0</span>
+            </div>
+            <div id="monitoring-readings-list" class="card-list"></div>
+          </div>
+        </div>
       </section>
 
       <section id="complaints" class="tab-pane">
         <header class="section-header">
           <h1>Grievance & Complaint Management</h1>
+          <p class="subtitle">Citizen grievance intake and administrative resolution workflow</p>
         </header>
-        <form id="complaint-form" class="simple-form">
-          <input type="text" id="complaint-title" placeholder="Complaint Title" required>
-          <select id="complaint-category">
-            <option value="No water supply">No water supply</option>
-            <option value="Pipeline leakage">Pipeline leakage</option>
-            <option value="Dirty water">Dirty water</option>
-            <option value="Low water pressure">Low water pressure</option>
-            <option value="Damaged infrastructure">Damaged infrastructure</option>
-            <option value="Other">Other</option>
-          </select>
-          <textarea id="complaint-desc" placeholder="Problem Description" rows="3" required></textarea>
-          <button type="submit" class="btn primary">Submit Complaint</button>
-        </form>
-        <div id="complaints-list" class="card-list"></div>
+
+        <div class="complaints-layout">
+          <div class="complaint-form-wrapper">
+            <h3>Register Grievance</h3>
+            <form id="complaint-form" class="simple-form">
+              <div class="form-group">
+                <label>Complaint Title</label>
+                <input type="text" id="complaint-title" placeholder="Brief summary of issue" required>
+              </div>
+              <div class="form-group">
+                <label>Category</label>
+                <select id="complaint-category">
+                  <option value="Pipeline leakage">Pipeline leakage</option>
+                  <option value="No water supply">No water supply</option>
+                  <option value="Dirty water">Dirty water</option>
+                  <option value="Low water pressure">Low water pressure</option>
+                  <option value="Damaged infrastructure">Damaged infrastructure</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label>Detailed Description</label>
+                <textarea id="complaint-desc" placeholder="Describe the problem, affected ward or landmark" rows="3" required></textarea>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label>Latitude (Optional)</label>
+                  <input type="number" step="any" id="complaint-lat" placeholder="26.8467">
+                </div>
+                <div class="form-group">
+                  <label>Longitude (Optional)</label>
+                  <input type="number" step="any" id="complaint-lng" placeholder="80.9462">
+                </div>
+              </div>
+              <button type="submit" class="btn primary">Submit Grievance</button>
+            </form>
+          </div>
+
+          <div class="complaint-list-wrapper">
+            <div class="list-toolbar">
+              <h3>Track Complaints</h3>
+              <select id="complaint-filter-status" class="form-control">
+                <option value="">All Statuses</option>
+                <option value="Pending">Pending</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Resolved">Resolved</option>
+              </select>
+            </div>
+            <div id="complaints-list" class="card-list"></div>
+          </div>
+        </div>
       </section>
     </main>
   </div>
