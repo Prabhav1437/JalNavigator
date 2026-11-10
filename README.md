@@ -23,7 +23,8 @@ JalNavigator is a web application designed to help rural water authorities view,
 jalnavigator/
 ├── backend/
 │   ├── prisma/
-│   │   └── schema.prisma
+│   │   ├── schema.prisma
+│   │   └── seed.js
 │   ├── routes/
 │   │   ├── dashboard.js
 │   │   ├── assets.js
@@ -74,18 +75,22 @@ jalnavigator/
    npm install
    ```
 
-4. Generate Prisma client and run migrations:
+4. Generate Prisma client and push schema:
    ```bash
-   npx prisma generate
-   npx prisma migrate dev --name init
+   npx prisma db push
    ```
 
-5. Start the server:
+5. Seed sample demonstration data:
+   ```bash
+   npm run seed
+   ```
+
+6. Start the server:
    ```bash
    npm start
    ```
 
-6. Open your browser:
+7. Open your browser:
    ```
    http://localhost:3000
    ```

@@ -44,7 +44,8 @@ It combines:
 jalnavigator/
 ├── backend/
 │   ├── prisma/
-│   │   └── schema.prisma
+│   │   ├── schema.prisma
+│   │   └── seed.js
 │   ├── routes/
 │   │   ├── dashboard.js
 │   │   ├── assets.js
