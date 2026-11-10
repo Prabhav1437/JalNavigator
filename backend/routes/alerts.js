@@ -5,7 +5,8 @@ const prisma = require('../database');
 router.get('/', async (req, res) => {
   try {
     const alerts = await prisma.alert.findMany({
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: 'desc' },
+      include: { asset: true }
     });
     res.json(alerts);
   } catch (err) {
@@ -19,7 +20,8 @@ router.put('/:id', async (req, res) => {
     const { status } = req.body;
     const alert = await prisma.alert.update({
       where: { id },
-      data: { status }
+      data: { status: status || 'Resolved' },
+      include: { asset: true }
     });
     res.json(alert);
   } catch (err) {

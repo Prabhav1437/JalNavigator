@@ -4,7 +4,13 @@ const prisma = require('../database');
 
 router.get('/', async (req, res) => {
   try {
+    const { status } = req.query;
+    const where = {};
+    if (status) {
+      where.status = { equals: status, mode: 'insensitive' };
+    }
     const complaints = await prisma.complaint.findMany({
+      where,
       orderBy: { createdAt: 'desc' }
     });
     res.json(complaints);
@@ -16,11 +22,14 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { title, category, description, latitude, longitude } = req.body;
+    if (!title || !description) {
+      return res.status(400).json({ error: 'Title and description are required' });
+    }
     const complaint = await prisma.complaint.create({
       data: {
-        title: title || '',
+        title: title.trim(),
         category: category || 'Other',
-        description: description || '',
+         description: description.trim(),
         latitude: latitude ? parseFloat(latitude) : null,
         longitude: longitude ? parseFloat(longitude) : null,
         status: 'Pending'

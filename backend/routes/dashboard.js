@@ -4,22 +4,42 @@ const prisma = require('../database');
 
 router.get('/', async (req, res) => {
   try {
-    const waterTanks = await prisma.asset.count({
-      where: { type: 'tank' }
-    });
-    const borewells = await prisma.asset.count({
-      where: { type: 'borewell' }
-    });
-    const pipelines = await prisma.asset.count({
-      where: { type: 'pipeline' }
-    });
-    const totalComplaints = await prisma.complaint.count();
-    const pendingComplaints = await prisma.complaint.count({
-      where: { status: 'Pending' }
-    });
-    const unresolvedAlerts = await prisma.alert.count({
-      where: { status: 'Open' }
-    });
+    const [
+      waterTanks,
+      borewells,
+      pipelines,
+      totalComplaints,
+      pendingComplaints,
+      unresolvedAlerts,
+      recentAlerts,
+      recentComplaints
+    ] = await Promise.all([
+      prisma.asset.count({
+        where: { type: { equals: 'tank', mode: 'insensitive' } }
+      }),
+      prisma.asset.count({
+        where: { type: { equals: 'borewell', mode: 'insensitive' } }
+      }),
+      prisma.asset.count({
+        where: { type: { equals: 'pipeline', mode: 'insensitive' } }
+      }),
+      prisma.complaint.count(),
+      prisma.complaint.count({
+        where: { status: 'Pending' }
+      }),
+      prisma.alert.count({
+        where: { status: 'Open' }
+      }),
+      prisma.alert.findMany({
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        include: { asset: true }
+      }),
+      prisma.complaint.findMany({
+        take: 5,
+        orderBy: { createdAt: 'desc' }
+      })
+    ]);
 
     res.json({
       waterTanks,
@@ -27,7 +47,9 @@ router.get('/', async (req, res) => {
       pipelines,
       totalComplaints,
       pendingComplaints,
-      unresolvedAlerts
+      unresolvedAlerts,
+      recentAlerts,
+      recentComplaints
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
