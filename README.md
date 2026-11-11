@@ -10,6 +10,7 @@ JalNavigator is a web application designed to help rural water authorities view,
 - **GIS Map:** Interactive Leaflet map displaying water infrastructure assets (tanks, borewells, pumps, pipelines).
 - **Water Monitoring:** Simulated IoT sensor readings (water level, flow rate, pressure) and threshold alerts.
 - **Complaint Management:** Citizen grievance submission and status tracking (Pending, In Progress, Resolved).
+- **API Explorer:** Interactive directory and live testing suite for the backend REST API.
 
 ## Tech Stack
 
@@ -26,6 +27,7 @@ jalnavigator/
 │   │   ├── schema.prisma
 │   │   └── seed.js
 │   ├── routes/
+│   │   ├── api.js
 │   │   ├── dashboard.js
 │   │   ├── assets.js
 │   │   ├── complaints.js
@@ -41,7 +43,10 @@ jalnavigator/
 │   │   │   ├── Dashboard.jsx
 │   │   │   ├── MapView.jsx
 │   │   │   ├── Monitoring.jsx
-│   │   │   └── Complaints.jsx
+│   │   │   ├── Complaints.jsx
+│   │   │   └── ApiExplorer.jsx
+│   │   ├── services/
+│   │   │   └── api.js
 │   │   ├── App.css
 │   │   ├── App.jsx
 │   │   └── main.jsx

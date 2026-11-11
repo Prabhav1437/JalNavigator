@@ -47,6 +47,7 @@ jalnavigator/
 │   │   ├── schema.prisma
 │   │   └── seed.js
 │   ├── routes/
+│   │   ├── api.js
 │   │   ├── dashboard.js
 │   │   ├── assets.js
 │   │   ├── complaints.js
@@ -62,7 +63,10 @@ jalnavigator/
 │   │   │   ├── Dashboard.jsx
 │   │   │   ├── MapView.jsx
 │   │   │   ├── Monitoring.jsx
-│   │   │   └── Complaints.jsx
+│   │   │   ├── Complaints.jsx
+│   │   │   └── ApiExplorer.jsx
+│   │   ├── services/
+│   │   │   └── api.js
 │   │   ├── App.css
 │   │   ├── App.jsx
 │   │   └── main.jsx
@@ -87,6 +91,7 @@ jalnavigator/
 
 ## API Endpoints
 
+- `GET /api` - API health check and endpoint directory.
 - `GET /api/dashboard` - Summary statistics for assets, complaints, and alerts.
 - `GET /api/assets` - List all water assets.
 - `POST /api/assets` - Register a new asset.
