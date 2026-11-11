@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../services/api';
 
 export default function Monitoring() {
   const [assets, setAssets] = useState([]);
@@ -8,11 +9,8 @@ export default function Monitoring() {
 
   const loadAssets = async () => {
     try {
-      const res = await fetch('/api/assets');
-      if (res.ok) {
-        const json = await res.json();
-        setAssets(json);
-      }
+      const json = await api.getAssets();
+      setAssets(json);
     } catch (err) {
       console.error(err);
     }
@@ -20,11 +18,8 @@ export default function Monitoring() {
 
   const loadAlerts = async () => {
     try {
-      const res = await fetch('/api/alerts');
-      if (res.ok) {
-        const json = await res.json();
-        setAlerts(json);
-      }
+      const json = await api.getAlerts();
+      setAlerts(json);
     } catch (err) {
       console.error(err);
     }
@@ -32,11 +27,8 @@ export default function Monitoring() {
 
   const loadReadings = async () => {
     try {
-      const res = await fetch('/api/sensors');
-      if (res.ok) {
-        const json = await res.json();
-        setReadings(json);
-      }
+      const json = await api.getSensors();
+      setReadings(json);
     } catch (err) {
       console.error(err);
     }
@@ -53,34 +45,18 @@ export default function Monitoring() {
       const body = {};
       if (selectedAssetId) body.assetId = parseInt(selectedAssetId, 10);
 
-      const res = await fetch('/api/sensors/simulate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      if (res.ok) {
-        loadReadings();
-        loadAlerts();
-      } else {
-        const errJson = await res.json();
-        alert(errJson.error || 'Failed to simulate telemetry');
-      }
+      await api.simulateSensor(body);
+      loadReadings();
+      loadAlerts();
     } catch (err) {
-      console.error(err);
+      alert(err.message || 'Failed to simulate telemetry');
     }
   };
 
   const handleResolveAlert = async (id) => {
     try {
-      const res = await fetch(`/api/alerts/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'Resolved' })
-      });
-      if (res.ok) {
-        loadAlerts();
-      }
+      await api.updateAlertStatus(id, 'Resolved');
+      loadAlerts();
     } catch (err) {
       console.error(err);
     }

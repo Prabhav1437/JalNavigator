@@ -1,12 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-
-const dashboardRoutes = require('./routes/dashboard');
-const assetsRoutes = require('./routes/assets');
-const complaintsRoutes = require('./routes/complaints');
-const sensorsRoutes = require('./routes/sensors');
-const alertsRoutes = require('./routes/alerts');
+const apiRoutes = require('./routes/api');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,11 +10,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../frontend/dist')));
 
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/assets', assetsRoutes);
-app.use('/api/complaints', complaintsRoutes);
-app.use('/api/sensors', sensorsRoutes);
-app.use('/api/alerts', alertsRoutes);
+app.use('/api', apiRoutes);
 
 app.get('*', (req, res, next) => {
   if (req.path.startsWith('/api')) return next();

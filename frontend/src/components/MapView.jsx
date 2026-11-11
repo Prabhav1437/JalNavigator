@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
+import api from '../services/api';
 
 export default function MapView() {
   const mapContainerRef = useRef(null);
@@ -22,15 +23,12 @@ export default function MapView() {
 
   const loadAssets = async () => {
     try {
-      const params = new URLSearchParams();
-      if (filterType) params.append('type', filterType);
-      if (filterVillage) params.append('village', filterVillage);
+      const params = {};
+      if (filterType) params.type = filterType;
+      if (filterVillage) params.village = filterVillage;
 
-      const res = await fetch(`/api/assets?${params.toString()}`);
-      if (res.ok) {
-        const json = await res.json();
-        setAssets(json);
-      }
+      const json = await api.getAssets(params);
+      setAssets(json);
     } catch (err) {
       console.error(err);
     }
@@ -119,10 +117,8 @@ export default function MapView() {
 
   const handleDelete = async (id) => {
     try {
-      const res = await fetch(`/api/assets/${id}`, { method: 'DELETE' });
-      if (res.ok) {
-        loadAssets();
-      }
+      await api.deleteAsset(id);
+      loadAssets();
     } catch (err) {
       console.error(err);
     }
@@ -131,31 +127,25 @@ export default function MapView() {
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('/api/assets', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: formState.name,
-          type: formState.type,
-          village: formState.village,
-          latitude: parseFloat(formState.latitude),
-          longitude: parseFloat(formState.longitude),
-          status: formState.status
-        })
+      await api.createAsset({
+        name: formState.name,
+        type: formState.type,
+        village: formState.village,
+        latitude: parseFloat(formState.latitude),
+        longitude: parseFloat(formState.longitude),
+        status: formState.status
       });
 
-      if (res.ok) {
-        setShowAddForm(false);
-        setFormState({
-          name: '',
-          type: 'tank',
-          village: '',
-          latitude: '',
-          longitude: '',
-          status: 'Operational'
-        });
-        loadAssets();
-      }
+      setShowAddForm(false);
+      setFormState({
+        name: '',
+        type: 'tank',
+        village: '',
+        latitude: '',
+        longitude: '',
+        status: 'Operational'
+      });
+      loadAssets();
     } catch (err) {
       console.error(err);
     }

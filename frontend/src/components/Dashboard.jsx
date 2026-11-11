@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../services/api';
 
 export default function Dashboard() {
   const [data, setData] = useState({
@@ -14,11 +15,8 @@ export default function Dashboard() {
 
   const loadDashboard = async () => {
     try {
-      const res = await fetch('/api/dashboard');
-      if (res.ok) {
-        const json = await res.json();
-        setData(json);
-      }
+      const json = await api.getDashboard();
+      setData(json);
     } catch (err) {
       console.error(err);
     }

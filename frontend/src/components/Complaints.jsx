@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../services/api';
 
 export default function Complaints() {
   const [complaints, setComplaints] = useState([]);
@@ -14,14 +15,11 @@ export default function Complaints() {
 
   const loadComplaints = async () => {
     try {
-      const params = new URLSearchParams();
-      if (filterStatus) params.append('status', filterStatus);
+      const params = {};
+      if (filterStatus) params.status = filterStatus;
 
-      const res = await fetch(`/api/complaints?${params.toString()}`);
-      if (res.ok) {
-        const json = await res.json();
-        setComplaints(json);
-      }
+      const json = await api.getComplaints(params);
+      setComplaints(json);
     } catch (err) {
       console.error(err);
     }
@@ -42,22 +40,16 @@ export default function Complaints() {
       if (formState.latitude) payload.latitude = parseFloat(formState.latitude);
       if (formState.longitude) payload.longitude = parseFloat(formState.longitude);
 
-      const res = await fetch('/api/complaints', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
+      await api.createComplaint(payload);
 
-      if (res.ok) {
-        setFormState({
-          title: '',
-          category: 'Pipeline leakage',
-          description: '',
-          latitude: '',
-          longitude: ''
-        });
-        loadComplaints();
-      }
+      setFormState({
+        title: '',
+        category: 'Pipeline leakage',
+        description: '',
+        latitude: '',
+        longitude: ''
+      });
+      loadComplaints();
     } catch (err) {
       console.error(err);
     }
@@ -65,14 +57,8 @@ export default function Complaints() {
 
   const handleStatusChange = async (id, newStatus) => {
     try {
-      const res = await fetch(`/api/complaints/${id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
-      if (res.ok) {
-        loadComplaints();
-      }
+      await api.updateComplaintStatus(id, newStatus);
+      loadComplaints();
     } catch (err) {
       console.error(err);
     }
