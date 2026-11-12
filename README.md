@@ -2,6 +2,9 @@
 
 Smart Rural Drinking Water Supply Mapping & Telemetry Monitoring System.
 
+**Live Deployment:** [https://jalnavigator.prabhav.tech](https://jalnavigator.prabhav.tech)  
+**API Health & Directory:** [https://jalnavigator.prabhav.tech/api](https://jalnavigator.prabhav.tech/api)
+
 JalNavigator is a web application designed for rural water authorities, field maintenance workers, and citizens. It centralizes GIS-based asset mapping, simulated IoT telemetry monitoring, automated threshold alerts, and grievance redressal into a unified system.
 
 ---

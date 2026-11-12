@@ -2,9 +2,8 @@
 
 ## Base URL
 
-```text
-http://localhost:3000/api
-```
+- **Production:** `https://jalnavigator.prabhav.tech/api`
+- **Local Development:** `http://localhost:3000/api`
 
 ---
 
