@@ -1,0 +1,46 @@
+--- a/frontend/src/main.jsx
++++ b/frontend/src/main.jsx
+@@ -3,6 +3,8 @@
+ import App from './App';
+ import 'leaflet/dist/leaflet.css';
+ import './App.css';
++import './theme/theme.css';
++import './theme/initTheme';
+ 
+ ReactDOM.createRoot(document.getElementById('root')).render(
+   <React.StrictMode>
+--- a/frontend/src/App.jsx
++++ b/frontend/src/App.jsx
+@@ -4,6 +4,7 @@
+ import Monitoring from './components/Monitoring';
+ import Complaints from './components/Complaints';
+ import ApiExplorer from './components/ApiExplorer';
++import ThemeToggle from './components/ThemeToggle';
+ import api from './services/api';
+ 
+ export default function App() {
+@@ -56,6 +57,8 @@
+           </button>
+         </nav>
+ 
++        <ThemeToggle />
++
+         <div style={{ marginTop: 'auto', padding: '16px 20px', borderTop: '1px solid #1e293b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8' }}>
+           <span style={{
+             width: '8px',
+--- a/frontend/index.html
++++ b/frontend/index.html
+@@ -4,6 +4,13 @@
+   <meta charset="UTF-8">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <title>JalNavigator - Water Supply Mapping & Monitoring</title>
++  <script>
++    try {
++      var saved = localStorage.getItem('jalnavigator-theme');
++      var theme = saved === 'dark' || saved === 'light' ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
++      document.documentElement.setAttribute('data-theme', theme);
++    } catch (e) {}
++  </script>
+ </head>
+ <body>
+   <div id="root"></div>
