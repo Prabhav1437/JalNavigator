@@ -73,6 +73,10 @@ jalnavigator/
 │   ├── index.html
 │   ├── package.json
 │   └── vite.config.js
+├── docs/
+│   ├── ARCHITECTURE.md
+│   ├── API.md
+│   └── DATABASE.md
 ├── .gitignore
 ├── agents.md
 └── README.md
