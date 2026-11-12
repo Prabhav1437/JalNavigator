@@ -149,7 +149,8 @@ jalnavigator/
 ├── backend/
 │   ├── prisma/
 │   │   ├── schema.prisma
-│   │   └── seed.js
+│   │   ├── seed.js
+│   │   └── seed-osm.js
 │   ├── routes/
 │   │   ├── api.js
 │   │   ├── dashboard.js
@@ -229,6 +230,11 @@ jalnavigator/
 6. Seed sample village infrastructure and grievance records:
    ```bash
    npm run seed
+   ```
+
+   To import a wider real-world dataset directly from OpenStreetMap Overpass API:
+   ```bash
+   npm run seed:osm
    ```
 
 7. Start the backend server:

@@ -114,3 +114,4 @@ sequenceDiagram
 ### Production Mode
 - Frontend is compiled into optimized static assets located in `frontend/dist`.
 - Express backend serves the static bundle and handles all `/api/*` endpoints on `http://localhost:3000`.
+

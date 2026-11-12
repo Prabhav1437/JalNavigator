@@ -45,7 +45,8 @@ jalnavigator/
 ├── backend/
 │   ├── prisma/
 │   │   ├── schema.prisma
-│   │   └── seed.js
+│   │   ├── seed.js
+│   │   └── seed-osm.js
 │   ├── routes/
 │   │   ├── api.js
 │   │   ├── dashboard.js
