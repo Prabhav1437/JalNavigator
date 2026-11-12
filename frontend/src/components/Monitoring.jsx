@@ -64,6 +64,12 @@ export default function Monitoring() {
 
   const openAlertsCount = alerts.filter((a) => a.status === 'Open').length;
 
+  const relevantReadings = selectedAssetId
+    ? readings.filter((r) => r.assetId === parseInt(selectedAssetId, 10))
+    : readings;
+
+  const chartReadings = [...relevantReadings].reverse().slice(-12);
+
   return (
     <section>
       <header className="section-header">
@@ -83,7 +89,7 @@ export default function Monitoring() {
             value={selectedAssetId}
             onChange={(e) => setSelectedAssetId(e.target.value)}
           >
-            <option value="">Auto Select First Asset</option>
+            <option value="">All Assets (Latest Stream)</option>
             {assets.map((asset) => (
               <option key={asset.id} value={asset.id}>
                 {asset.name} ({asset.village || 'No village'})
@@ -94,6 +100,56 @@ export default function Monitoring() {
         <button className="btn primary" onClick={handleSimulate}>
           Simulate New Telemetry
         </button>
+      </div>
+
+      <div className="dash-card" style={{ marginBottom: '24px' }}>
+        <div className="dash-card-header">
+          <h3>Water Level Trend (Historical Telemetry)</h3>
+          <span style={{ fontSize: '0.8rem', color: '#64748b' }}>Critical Threshold: 20%</span>
+        </div>
+        {chartReadings.length === 0 ? (
+          <div className="empty-state">No historical readings to plot.</div>
+        ) : (
+          <div style={{ width: '100%', height: '140px', position: 'relative' }}>
+            <svg viewBox="0 0 500 120" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+              <line x1="0" y1="96" x2="500" y2="96" stroke="#ef4444" strokeWidth="1" strokeDasharray="4 4" />
+              <text x="4" y="92" fill="#ef4444" fontSize="9" fontFamily="sans-serif">20% Critical</text>
+
+              {(() => {
+                const step = 500 / Math.max(chartReadings.length - 1, 1);
+                const points = chartReadings.map((r, i) => {
+                  const x = i * step;
+                  const y = 110 - (Math.min(Math.max(r.waterLevel, 0), 100) / 100) * 100;
+                  return `${x},${y}`;
+                }).join(' ');
+
+                return (
+                  <>
+                    <polyline fill="none" stroke="#0284c7" strokeWidth="2.5" points={points} />
+                    {chartReadings.map((r, i) => {
+                      const x = i * step;
+                      const y = 110 - (Math.min(Math.max(r.waterLevel, 0), 100) / 100) * 100;
+                      const isLow = r.waterLevel < 20;
+                      return (
+                        <circle
+                          key={r.id || i}
+                          cx={x}
+                          cy={y}
+                          r="4"
+                          fill={isLow ? '#ef4444' : '#0284c7'}
+                          stroke="#ffffff"
+                          strokeWidth="1.5"
+                        >
+                          <title>{`${r.waterLevel}% (${new Date(r.recordedAt).toLocaleTimeString()})`}</title>
+                        </circle>
+                      );
+                    })}
+                  </>
+                );
+              })()}
+            </svg>
+          </div>
+        )}
       </div>
 
       <div className="monitoring-columns">
@@ -142,13 +198,13 @@ export default function Monitoring() {
         <div className="dash-card">
           <div className="dash-card-header">
             <h3>Sensor Readings Stream</h3>
-            <span className="badge badge-info">{readings.length}</span>
+            <span className="badge badge-info">{relevantReadings.length}</span>
           </div>
           <div className="card-list">
-            {readings.length === 0 ? (
+            {relevantReadings.length === 0 ? (
               <div className="empty-state">No sensor readings recorded yet. Click "Simulate New Telemetry" above.</div>
             ) : (
-              readings.map((reading) => {
+              relevantReadings.map((reading) => {
                 const assetName = reading.asset ? reading.asset.name : `Asset #${reading.assetId}`;
                 const isLow = reading.waterLevel < 20;
 

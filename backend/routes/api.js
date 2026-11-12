@@ -38,3 +38,4 @@ router.use('/sensors', sensorsRoutes);
 router.use('/alerts', alertsRoutes);
 
 module.exports = router;
+

@@ -6,11 +6,13 @@ export default function MapView() {
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
   const markersLayerRef = useRef(null);
+  const linesLayerRef = useRef(null);
 
   const [assets, setAssets] = useState([]);
   const [filterType, setFilterType] = useState('');
   const [filterVillage, setFilterVillage] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [editingAssetId, setEditingAssetId] = useState(null);
 
   const [formState, setFormState] = useState({
     name: '',
@@ -42,7 +44,8 @@ export default function MapView() {
       maxZoom: 19
     }).addTo(map);
 
-    const layer = L.layerGroup().addTo(map);
+    const linesLayer = L.layerGroup().addTo(map);
+    const markersLayer = L.layerGroup().addTo(map);
 
     map.on('click', (e) => {
       setFormState((prev) => ({
@@ -54,12 +57,14 @@ export default function MapView() {
     });
 
     mapInstanceRef.current = map;
-    markersLayerRef.current = layer;
+    markersLayerRef.current = markersLayer;
+    linesLayerRef.current = linesLayer;
 
     return () => {
       map.remove();
       mapInstanceRef.current = null;
       markersLayerRef.current = null;
+      linesLayerRef.current = null;
     };
   }, []);
 
@@ -68,10 +73,12 @@ export default function MapView() {
   }, [filterType, filterVillage]);
 
   useEffect(() => {
-    if (!mapInstanceRef.current || !markersLayerRef.current) return;
+    if (!mapInstanceRef.current || !markersLayerRef.current || !linesLayerRef.current) return;
 
     markersLayerRef.current.clearLayers();
+    linesLayerRef.current.clearLayers();
     const bounds = [];
+    const pipelinePoints = [];
 
     assets.forEach((asset) => {
       if (asset.latitude && asset.longitude) {
@@ -92,8 +99,28 @@ export default function MapView() {
           Village: ${asset.village || 'N/A'}<br>
           Status: ${asset.status}<br>
           Coordinates: ${asset.latitude.toFixed(4)}, ${asset.longitude.toFixed(4)}<br>
-          <button class="btn secondary sm" style="margin-top:6px;width:100%;" id="del-btn-${asset.id}">Delete Asset</button>
+          <div style="display:flex;gap:6px;margin-top:8px;">
+            <button class="btn primary sm" style="flex:1;" id="edit-btn-${asset.id}">Edit</button>
+            <button class="btn secondary sm" style="flex:1;" id="del-btn-${asset.id}">Delete</button>
+          </div>
         `;
+
+        const editBtn = popupNode.querySelector(`#edit-btn-${asset.id}`);
+        if (editBtn) {
+          editBtn.addEventListener('click', () => {
+            setEditingAssetId(asset.id);
+            setFormState({
+              name: asset.name,
+              type: asset.type,
+              village: asset.village || '',
+              latitude: asset.latitude.toString(),
+              longitude: asset.longitude.toString(),
+              status: asset.status
+            });
+            setShowAddForm(true);
+            mapInstanceRef.current.closePopup();
+          });
+        }
 
         const delBtn = popupNode.querySelector(`#del-btn-${asset.id}`);
         if (delBtn) {
@@ -107,8 +134,22 @@ export default function MapView() {
         marker.bindPopup(popupNode);
         markersLayerRef.current.addLayer(marker);
         bounds.push([asset.latitude, asset.longitude]);
+
+        if (typeClass === 'pipeline' || typeClass === 'tank' || typeClass === 'pump') {
+          pipelinePoints.push([asset.latitude, asset.longitude]);
+        }
       }
     });
+
+    if (pipelinePoints.length > 1) {
+      const polyline = L.polyline(pipelinePoints, {
+        color: '#9333ea',
+        weight: 3,
+        dashArray: '6, 6',
+        opacity: 0.8
+      });
+      linesLayerRef.current.addLayer(polyline);
+    }
 
     if (bounds.length > 0 && !filterType && !filterVillage) {
       mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
@@ -127,16 +168,23 @@ export default function MapView() {
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     try {
-      await api.createAsset({
+      const payload = {
         name: formState.name,
         type: formState.type,
         village: formState.village,
         latitude: parseFloat(formState.latitude),
         longitude: parseFloat(formState.longitude),
         status: formState.status
-      });
+      };
+
+      if (editingAssetId) {
+        await api.updateAsset(editingAssetId, payload);
+      } else {
+        await api.createAsset(payload);
+      }
 
       setShowAddForm(false);
+      setEditingAssetId(null);
       setFormState({
         name: '',
         type: 'tank',
@@ -149,6 +197,19 @@ export default function MapView() {
     } catch (err) {
       console.error(err);
     }
+  };
+
+  const handleCancel = () => {
+    setShowAddForm(false);
+    setEditingAssetId(null);
+    setFormState({
+      name: '',
+      type: 'tank',
+      village: '',
+      latitude: '',
+      longitude: '',
+      status: 'Operational'
+    });
   };
 
   return (
@@ -181,7 +242,10 @@ export default function MapView() {
         </div>
         <button
           className="btn primary"
-          onClick={() => setShowAddForm(!showAddForm)}
+          onClick={() => {
+            if (showAddForm) handleCancel();
+            else setShowAddForm(true);
+          }}
         >
           {showAddForm ? 'Close Form' : '+ Add Water Asset'}
         </button>
@@ -190,8 +254,10 @@ export default function MapView() {
       {showAddForm && (
         <form className="panel-form" onSubmit={handleFormSubmit}>
           <div className="panel-header">
-            <h3>Register New Water Asset</h3>
-            <span className="panel-hint">Click anywhere on the map to set coordinates automatically</span>
+            <h3>{editingAssetId ? 'Edit Water Asset' : 'Register New Water Asset'}</h3>
+            <span className="panel-hint">
+              {editingAssetId ? 'Update asset attributes or coordinates' : 'Click anywhere on the map to set coordinates automatically'}
+            </span>
           </div>
           <div className="form-grid">
             <div className="form-group">
@@ -249,7 +315,7 @@ export default function MapView() {
               />
             </div>
             <div className="form-group">
-              <label>Initial Status</label>
+              <label>Status</label>
               <select
                 value={formState.status}
                 onChange={(e) => setFormState({ ...formState, status: e.target.value })}
@@ -261,11 +327,13 @@ export default function MapView() {
             </div>
           </div>
           <div className="form-actions">
-            <button type="submit" className="btn primary">Save Asset</button>
+            <button type="submit" className="btn primary">
+              {editingAssetId ? 'Update Asset' : 'Save Asset'}
+            </button>
             <button
               type="button"
               className="btn secondary"
-              onClick={() => setShowAddForm(false)}
+              onClick={handleCancel}
             >
               Cancel
             </button>
@@ -280,7 +348,7 @@ export default function MapView() {
           <div className="legend-item"><span className="legend-color marker-tank"></span> Water Tank</div>
           <div className="legend-item"><span className="legend-color marker-borewell"></span> Borewell</div>
           <div className="legend-item"><span className="legend-color marker-pump"></span> Pump</div>
-          <div className="legend-item"><span className="legend-color marker-pipeline"></span> Pipeline</div>
+          <div className="legend-item"><span className="legend-color marker-pipeline"></span> Pipeline Line</div>
         </div>
       </div>
     </section>
