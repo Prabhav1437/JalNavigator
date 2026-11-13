@@ -21,6 +21,10 @@ const VILLAGE_STATUS = {
   problem: {
     en: 'A problem has been reported with the water supply in this village.',
     hi: 'इस गाँव की पानी की आपूर्ति में समस्या दर्ज की गई है।'
+  },
+  unknown: {
+    en: 'There are no water level readings for this village yet, so its water supply status is not known.',
+    hi: 'इस गाँव के लिए अभी पानी के स्तर की कोई रीडिंग नहीं है, इसलिए पानी की आपूर्ति की स्थिति ज्ञात नहीं है।'
   }
 };
 
@@ -44,8 +48,31 @@ const COMPLAINT_STATUS = {
 };
 
 const COMPLAINT_RECEIVED = {
-  en: 'Your complaint has been registered. Keep your complaint number to check its status.',
-  hi: 'आपकी शिकायत दर्ज कर ली गई है। स्थिति जानने के लिए अपना शिकायत नंबर संभालकर रखें।'
+  en: 'Your complaint has been registered. Keep your complaint number and tracking code to check its status.',
+  hi: 'आपकी शिकायत दर्ज कर ली गई है। स्थिति जानने के लिए अपना शिकायत नंबर और ट्रैकिंग कोड संभालकर रखें।'
+};
+
+const DIRECTORY = {
+  villages: {
+    en: 'Villages with a plain-language water supply status (optional ?q= name prefix, ?limit=)',
+    hi: 'गाँवों की पानी की आपूर्ति की सरल भाषा में स्थिति (वैकल्पिक: ?q= नाम का आरंभ, ?limit=)'
+  },
+  village: {
+    en: 'Water points, status and notices for one village',
+    hi: 'एक गाँव के जल स्रोत, स्थिति और सूचनाएँ'
+  },
+  nearby: {
+    en: 'Closest working water points to ?lat= and ?lng= (optional ?radiusKm=, ?type=, ?limit=)',
+    hi: '?lat= और ?lng= के सबसे नज़दीकी चालू जल स्रोत (वैकल्पिक: ?radiusKm=, ?type=, ?limit=)'
+  },
+  register: {
+    en: 'Register a complaint and receive a complaint number and tracking code (optional Idempotency-Key header)',
+    hi: 'शिकायत दर्ज करें और शिकायत नंबर व ट्रैकिंग कोड पाएँ (वैकल्पिक Idempotency-Key हेडर)'
+  },
+  track: {
+    en: 'Check the status of a complaint with its number and tracking code (X-Complaint-Token header)',
+    hi: 'शिकायत नंबर और ट्रैकिंग कोड से शिकायत की स्थिति देखें (X-Complaint-Token हेडर)'
+  }
 };
 
 const LEVEL_TEXT = {
@@ -82,6 +109,8 @@ const typeText = (type, lang) => {
 
 const noticeText = (name, lang) => NOTICE_TEXT[lang](name);
 
+const directoryText = (key, lang) => DIRECTORY[key][lang];
+
 module.exports = {
   LANGUAGES,
   CATEGORIES,
@@ -90,5 +119,6 @@ module.exports = {
   complaintReceived,
   levelText,
   typeText,
-  noticeText
+  noticeText,
+  directoryText
 };

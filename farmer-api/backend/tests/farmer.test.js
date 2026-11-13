@@ -3,6 +3,10 @@ process.env.FARMER_COMPLAINT_LIMIT = '0';
 const { test, before, after, beforeEach, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const farmerJsonErrors = require('../utils/farmerJsonErrors');
+
+const TOKEN = 'tracking-code-for-tests-0001';
+const KEY = 'retry-key-0123456789abcdef';
 
 const state = {
   summaries: [],
@@ -10,6 +14,8 @@ const state = {
   notices: [],
   nearby: [],
   complaint: null,
+  keyed: null,
+  createError: null,
   failQueries: null,
   failCreate: null,
   failLookup: null
@@ -18,6 +24,7 @@ const queryCalls = [];
 const transactionCalls = [];
 const created = [];
 const lookups = [];
+const keyLookups = [];
 
 function rowsFor(sql) {
   if (sql.includes('WITH assets AS')) return state.summaries;
@@ -46,13 +53,21 @@ require.cache[databasePath] = {
     complaint: {
       create: ({ data }) => {
         if (state.failCreate) return Promise.reject(state.failCreate);
+        if (state.createError) return Promise.reject(state.createError);
         created.push(data);
-        return Promise.resolve({ id: 100 + created.length, createdAt: new Date(), ...data });
-      },
+        const { farmerAccess, ...fields } = data;
+        return Promise.resolve({ id: 100 + created.length, createdAt: new Date(), ...fields });
+      }
+    },
+    farmerComplaintAccess: {
       findUnique: (args) => {
+        if (args.where.idempotencyKey) {
+          keyLookups.push(args);
+          return Promise.resolve(state.keyed);
+        }
         lookups.push(args);
         if (state.failLookup) return Promise.reject(state.failLookup);
-        return Promise.resolve(state.complaint);
+        return Promise.resolve(state.complaint ? { token: TOKEN, complaint: state.complaint } : null);
       }
     }
   }
@@ -64,6 +79,7 @@ let origin;
 before(async () => {
   const app = express();
   app.use(express.json());
+  app.use(farmerJsonErrors);
   app.use('/api', require('../routes/api'));
   await new Promise((resolve) => {
     server = app.listen(0, resolve);
@@ -81,6 +97,8 @@ beforeEach(() => {
   state.notices = [];
   state.nearby = [];
   state.complaint = null;
+  state.keyed = null;
+  state.createError = null;
   state.failQueries = null;
   state.failCreate = null;
   state.failLookup = null;
@@ -88,17 +106,20 @@ beforeEach(() => {
   transactionCalls.length = 0;
   created.length = 0;
   lookups.length = 0;
+  keyLookups.length = 0;
 });
 
-const get = async (path) => {
-  const res = await fetch(`${origin}/api/farmer${path}`);
+const get = async (path, headers = {}) => {
+  const res = await fetch(`${origin}/api/farmer${path}`, { headers });
   return { status: res.status, body: await res.json() };
 };
 
-const post = async (path, body) => {
+const tracked = (path, token = TOKEN) => get(path, { 'X-Complaint-Token': token });
+
+const post = async (path, body, headers = {}) => {
   const res = await fetch(`${origin}/api/farmer${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body)
   });
   return { status: res.status, body: await res.json() };
@@ -112,6 +133,7 @@ const summary = (overrides = {}) => ({
   openAlerts: 0,
   lowLevel: 0,
   criticalLevel: 0,
+  withReadings: 2,
   ...overrides
 });
 
@@ -119,6 +141,7 @@ test('the directory lists the exact endpoints, languages and categories', async 
   const { status, body } = await get('');
   assert.equal(status, 200);
   assert.equal(body.name, 'JalNavigator Farmer API');
+  assert.equal(body.lang, 'en');
   assert.deepEqual(body.languages, ['en', 'hi']);
   assert.deepEqual(
     body.endpoints.map((endpoint) => `${endpoint.method} ${endpoint.path}`),
@@ -137,6 +160,26 @@ test('the directory lists the exact endpoints, languages and categories', async 
   body.categories.forEach((category) => {
     assert.ok(category.label.en && category.label.hi);
   });
+});
+
+test('the directory answers in Hindi and rejects unsupported languages', async () => {
+  const english = (await get('?lang=en')).body;
+  const hindi = await get('?lang=HI');
+  assert.equal(hindi.status, 200);
+  assert.equal(hindi.body.lang, 'hi');
+  assert.deepEqual(
+    hindi.body.endpoints.map((endpoint) => `${endpoint.method} ${endpoint.path}`),
+    english.endpoints.map((endpoint) => `${endpoint.method} ${endpoint.path}`)
+  );
+  hindi.body.endpoints.forEach((endpoint, index) => {
+    assert.match(endpoint.description, /[\u0900-\u097F]/);
+    assert.notEqual(endpoint.description, english.endpoints[index].description);
+  });
+  for (const query of ['?lang=fr', '?lang=', '?lang=en&lang=hi']) {
+    const rejected = await get(query);
+    assert.equal(rejected.status, 400, query);
+    assert.ok(rejected.body.error);
+  }
 });
 
 test('the farmer router is mounted next to the existing routes', async () => {
@@ -172,6 +215,50 @@ test('villages derive good, low and problem from the counts', async () => {
   });
 });
 
+test('a village with no readings is unknown, not good, and real problems still win', async () => {
+  state.summaries = [
+    summary({ village: 'Aam', withReadings: 0 }),
+    summary({ village: 'Bela', withReadings: 0, openAlerts: 1 }),
+    summary({ village: 'Chak', withReadings: 0, maintenance: 1 }),
+    summary({ village: 'Dera', withReadings: 1 }),
+    summary({ village: 'Ekta', withReadings: null }),
+    summary({ village: 'Fatehpur', withReadings: 0, operational: 0 })
+  ];
+  const { body } = await get('/villages');
+  assert.deepEqual(
+    body.villages.map((village) => [village.village, village.status]),
+    [['Aam', 'unknown'], ['Bela', 'problem'], ['Chak', 'low'], ['Dera', 'good'], ['Ekta', 'unknown'], ['Fatehpur', 'problem']]
+  );
+  assert.match(body.villages[0].message, /no water level readings/);
+  const hindi = (await get('/villages?lang=hi')).body;
+  assert.match(hindi.villages[0].message, /[\u0900-\u097F]/);
+  assert.notEqual(hindi.villages[0].message, body.villages[0].message);
+});
+
+test('a village detail reports unknown when nothing has been measured', async () => {
+  state.summaries = [summary({ withReadings: 0 })];
+  state.points = [{ id: 1, name: 'Rampur Tank', type: 'tank', status: 'Operational', latitude: 26.8, longitude: 80.9, waterLevel: null, recordedAt: null }];
+  const { body } = await get('/villages/Rampur');
+  assert.equal(body.status, 'unknown');
+  assert.equal(body.waterPoints[0].waterLevel, null);
+});
+
+test('map links are left out when a stored location is not on Earth', async () => {
+  state.summaries = [summary()];
+  state.points = [
+    { id: 1, name: 'Good', type: 'tank', status: 'Operational', latitude: 26.8, longitude: 80.9, waterLevel: 50, recordedAt: new Date() },
+    { id: 2, name: 'Bad latitude', type: 'tank', status: 'Operational', latitude: 190, longitude: 80.9, waterLevel: 50, recordedAt: new Date() },
+    { id: 3, name: 'Bad longitude', type: 'tank', status: 'Operational', latitude: 20, longitude: -400, waterLevel: 50, recordedAt: new Date() },
+    { id: 4, name: 'Not a number', type: 'tank', status: 'Operational', latitude: NaN, longitude: 80.9, waterLevel: 50, recordedAt: new Date() },
+    { id: 5, name: 'Equator', type: 'tank', status: 'Operational', latitude: 0, longitude: 0, waterLevel: 50, recordedAt: new Date() }
+  ];
+  const { body } = await get('/villages/Rampur');
+  assert.deepEqual(
+    body.waterPoints.map((point) => point.mapUrl !== null),
+    [true, false, false, false, true]
+  );
+});
+
 test('villages answer in Hindi when asked', async () => {
   state.summaries = [summary()];
   const { body } = await get('/villages?lang=HI');
@@ -182,9 +269,9 @@ test('villages answer in Hindi when asked', async () => {
 test('villages pass the search prefix and limit to the database as lowercase text', async () => {
   await get('/villages?q=%20RaM%20&limit=7');
   const { values } = queryCalls[0];
-  assert.deepEqual(values.slice(3), [null, null, 'ram', 'ram', '7']);
+  assert.deepEqual(values.slice(4), [null, null, 'ram', 'ram', '7']);
   await get('/villages');
-  assert.deepEqual(queryCalls[1].values.slice(3), [null, null, null, null, '100']);
+  assert.deepEqual(queryCalls[1].values.slice(4), [null, null, null, null, '100']);
 });
 
 test('villages reject every invalid query value without touching the database', async () => {
@@ -232,7 +319,7 @@ test('a village detail is read in one repeatable-read snapshot and keyed by lowe
   assert.equal(status, 200);
   assert.deepEqual(transactionCalls, [{ isolationLevel: 'RepeatableRead' }]);
   assert.equal(queryCalls.length, 3);
-  assert.deepEqual(queryCalls[0].values.slice(3, 7), ['rampur', 'rampur', null, null]);
+  assert.deepEqual(queryCalls[0].values.slice(4, 8), ['rampur', 'rampur', null, null]);
   assert.equal(body.village, 'Rampur');
   assert.equal(body.status, 'problem');
   assert.equal(body.totalWaterPoints, 3);
@@ -276,7 +363,7 @@ test('an unknown village is a 404 and a bad name or language is a 400', async ()
   assert.equal(tooLong.status, 400);
   const control = await get('/villages/a%00b');
   assert.equal(control.status, 404);
-  assert.equal(queryCalls[queryCalls.length - 3].values[3], 'ab');
+  assert.equal(queryCalls[queryCalls.length - 3].values[4], 'ab');
   const language = await get('/villages/Rampur?lang=fr');
   assert.equal(language.status, 400);
 });
@@ -389,16 +476,18 @@ test('a complaint is stored through the existing Complaint model with safe defau
   assert.equal(body.status, 'Pending');
   assert.equal(body.trackPath, '/api/farmer/complaints/101');
   assert.match(body.message, /registered/);
-  assert.deepEqual(created, [
-    {
-      title: 'Dirty water - Rampur',
-      category: 'Dirty water',
-      description: 'Water from the hand pump is brown and smells bad.',
-      latitude: 26.845,
-      longitude: 80.952,
-      status: 'Pending'
-    }
-  ]);
+  const { farmerAccess, ...stored } = created[0];
+  assert.deepEqual(stored, {
+    title: 'Dirty water - Rampur',
+    category: 'Dirty water',
+    description: 'Water from the hand pump is brown and smells bad.',
+    latitude: 26.845,
+    longitude: 80.952,
+    status: 'Pending'
+  });
+  assert.equal(farmerAccess.create.token, body.trackingToken);
+  assert.equal(farmerAccess.create.idempotencyKey, null);
+  assert.match(farmerAccess.create.requestHash, /^[0-9a-f]{64}$/);
 });
 
 test('a complaint needs only a description, and the category defaults to Other', async () => {
@@ -406,7 +495,8 @@ test('a complaint needs only a description, and the category defaults to Other',
   assert.equal(status, 201);
   assert.equal(body.lang, 'hi');
   assert.match(body.message, /शिकायत दर्ज/);
-  assert.deepEqual(created[0], {
+  const { farmerAccess, ...stored } = created[0];
+  assert.deepEqual(stored, {
     title: 'Other',
     category: 'Other',
     description: 'पानी नहीं आ रहा है',
@@ -414,6 +504,7 @@ test('a complaint needs only a description, and the category defaults to Other',
     longitude: null,
     status: 'Pending'
   });
+  assert.ok(farmerAccess.create.token);
 });
 
 test('a location of 0,0 is kept, not turned into null', async () => {
@@ -472,11 +563,16 @@ test('invalid complaints are rejected with 400 and never stored', async () => {
   assert.equal(created.length, 0);
 });
 
-test('a complaint can be looked up by number and exposes only safe fields', async () => {
+test('a complaint can be looked up with its tracking code and exposes only safe fields', async () => {
   state.complaint = { id: 7, title: 'Dirty water - Rampur', category: 'Dirty water', status: 'Pending', createdAt: new Date('2026-11-14T00:00:00.000Z') };
-  const { status, body } = await get('/complaints/7');
+  const { status, body } = await tracked('/complaints/7');
   assert.equal(status, 200);
-  assert.deepEqual(lookups, [{ where: { id: 7 }, select: { id: true, title: true, category: true, status: true, createdAt: true } }]);
+  assert.deepEqual(lookups, [
+    {
+      where: { complaintId: 7 },
+      select: { token: true, complaint: { select: { id: true, title: true, category: true, status: true, createdAt: true } } }
+    }
+  ]);
   assert.deepEqual(body, {
     lang: 'en',
     complaintId: 7,
@@ -489,6 +585,148 @@ test('a complaint can be looked up by number and exposes only safe fields', asyn
   assert.equal('description' in body, false);
   assert.equal('latitude' in body, false);
   assert.equal('longitude' in body, false);
+  assert.equal('token' in body, false);
+});
+
+test('a complaint cannot be read without its tracking code, so numbers cannot be enumerated', async () => {
+  state.complaint = { id: 7, title: 'Dirty water - Rampur', category: 'Dirty water', status: 'Pending', createdAt: new Date() };
+  const none = await get('/complaints/7');
+  assert.equal(none.status, 401);
+  assert.ok(none.body.error);
+  assert.equal(JSON.stringify(none.body).includes('Dirty water'), false);
+  const blank = await get('/complaints/7', { 'X-Complaint-Token': '   ' });
+  assert.equal(blank.status, 401);
+  const long = await tracked('/complaints/7', 'x'.repeat(129));
+  assert.equal(long.status, 401);
+  assert.equal(lookups.length, 0);
+
+  const wrong = await tracked('/complaints/7', 'tracking-code-for-tests-0002');
+  const prefix = await tracked('/complaints/7', 'tracking-code-for-tests-000');
+  state.complaint = null;
+  const missing = await tracked('/complaints/8');
+  for (const denied of [wrong, prefix, missing]) {
+    assert.equal(denied.status, 404);
+    assert.deepEqual(denied.body, missing.body);
+  }
+  assert.equal(JSON.stringify(wrong.body).includes('Dirty water'), false);
+});
+
+test('the tracking code is also accepted as a query parameter', async () => {
+  state.complaint = { id: 7, title: 't', category: 'Other', status: 'Pending', createdAt: new Date() };
+  assert.equal((await get(`/complaints/7?token=${TOKEN}`)).status, 200);
+  assert.equal((await get('/complaints/7?token=nope')).status, 404);
+  assert.equal((await get('/complaints/7?token=a&token=b')).status, 401);
+});
+
+test('each new complaint gets its own unguessable tracking code', async () => {
+  const first = (await post('/complaints', { description: 'Tap is broken' })).body;
+  const second = (await post('/complaints', { description: 'Tap is broken' })).body;
+  assert.match(first.trackingToken, /^[A-Za-z0-9_-]{32}$/);
+  assert.notEqual(first.trackingToken, second.trackingToken);
+  assert.equal(created[0].farmerAccess.create.token, first.trackingToken);
+});
+
+test('an Idempotency-Key makes a retried complaint return the original instead of a duplicate', async () => {
+  const first = await post('/complaints', { description: 'Tap is broken' }, { 'Idempotency-Key': KEY });
+  assert.equal(first.status, 201);
+  assert.equal(created.length, 1);
+  assert.equal(created[0].farmerAccess.create.idempotencyKey, KEY);
+  assert.deepEqual(keyLookups.map((call) => call.where), [{ idempotencyKey: KEY }]);
+
+  state.keyed = {
+    complaintId: first.body.complaintId,
+    token: first.body.trackingToken,
+    requestHash: created[0].farmerAccess.create.requestHash,
+    complaint: { status: 'Pending' }
+  };
+  const retry = await post('/complaints', { description: 'Tap is broken' }, { 'Idempotency-Key': KEY });
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.replayed, true);
+  assert.equal(retry.body.complaintId, first.body.complaintId);
+  assert.equal(retry.body.trackingToken, first.body.trackingToken);
+  assert.equal(created.length, 1);
+});
+
+test('the same key with a different complaint is refused, and the whitespace-only difference is not', async () => {
+  const first = await post('/complaints', { description: 'Tap is broken' }, { 'Idempotency-Key': KEY });
+  state.keyed = {
+    complaintId: first.body.complaintId,
+    token: first.body.trackingToken,
+    requestHash: created[0].farmerAccess.create.requestHash,
+    complaint: { status: 'Pending' }
+  };
+  const different = await post('/complaints', { description: 'The tank is empty' }, { 'Idempotency-Key': KEY });
+  assert.equal(different.status, 422);
+  assert.ok(different.body.error);
+  assert.equal('trackingToken' in different.body, false);
+  assert.equal(created.length, 1);
+  const spaced = await post('/complaints', { description: '  Tap is broken  ' }, { 'Idempotency-Key': KEY });
+  assert.equal(spaced.status, 200);
+});
+
+test('two requests with one key at the same time create one complaint', async () => {
+  const winner = await post('/complaints', { description: 'Tap is broken' }, { 'Idempotency-Key': KEY });
+  state.keyed = {
+    complaintId: winner.body.complaintId,
+    token: winner.body.trackingToken,
+    requestHash: created[0].farmerAccess.create.requestHash,
+    complaint: { status: 'Pending' }
+  };
+  const lookupsBefore = keyLookups.length;
+  state.createError = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+  const loser = await post('/complaints', { description: 'Tap is broken' }, { 'Idempotency-Key': KEY });
+  state.createError = null;
+  assert.equal(loser.status, 200);
+  assert.equal(loser.body.complaintId, winner.body.complaintId);
+  assert.equal(created.length, 1);
+  assert.ok(keyLookups.length > lookupsBefore);
+});
+
+test('a unique-constraint error without an idempotency key is still a logged 500', async () => {
+  const errorLog = mock.method(console, 'error', () => {});
+  try {
+    state.createError = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    const { status } = await post('/complaints', { description: 'Tap is broken' });
+    assert.equal(status, 500);
+    assert.equal(errorLog.mock.calls.length, 1);
+  } finally {
+    errorLog.mock.restore();
+  }
+});
+
+test('malformed Idempotency-Key values are rejected before anything is stored', async () => {
+  for (const key of ['short', 'has spaces in it 1234567890', 'x'.repeat(65), 'bad/key/with/slashes12345', '   ']) {
+    const { status, body } = await post('/complaints', { description: 'Tap is broken' }, { 'Idempotency-Key': key });
+    assert.equal(status, 400, key);
+    assert.match(body.error, /Idempotency-Key/);
+  }
+  assert.equal(created.length, 0);
+  assert.equal(keyLookups.length, 0);
+});
+
+test('malformed JSON gets a JSON error, only on farmer routes, and never echoes the body', async () => {
+  const send = (path, text) =>
+    fetch(`${origin}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: text });
+
+  for (const text of ['{"description": "Tap is broken",', '{bad json}', 'null}', '']) {
+    const res = await send('/api/farmer/complaints', text || '{');
+    assert.equal(res.status, 400, text);
+    assert.match(res.headers.get('content-type'), /application\/json/);
+    assert.deepEqual(await res.json(), { error: 'The request body is not valid JSON.' });
+  }
+
+  const secret = '{"description": "my phone is 9999999999",';
+  const echoed = await (await send('/api/farmer/complaints?lang=hi', secret)).text();
+  assert.equal(echoed.includes('9999999999'), false);
+
+  const huge = await send('/api/farmer/complaints', JSON.stringify({ description: 'x'.repeat(200000) }));
+  assert.equal(huge.status, 413);
+  assert.deepEqual(await huge.json(), { error: 'The request body is too large.' });
+
+  const other = await send('/api/complaints', '{bad json}');
+  assert.equal(other.status, 400);
+  assert.doesNotMatch(other.headers.get('content-type'), /application\/json/);
+  assert.equal(created.length, 0);
 });
 
 test('every complaint status has an English and a Hindi message', async () => {
@@ -500,23 +738,23 @@ test('every complaint status has an English and a Hindi message', async () => {
   };
   for (const [statusText, [en, hi]] of Object.entries(expected)) {
     state.complaint = { id: 1, title: 't', category: 'Other', status: statusText, createdAt: new Date() };
-    assert.equal((await get('/complaints/1')).body.message, en, statusText);
-    assert.equal((await get('/complaints/1?lang=hi')).body.message, hi, statusText);
+    assert.equal((await tracked('/complaints/1')).body.message, en, statusText);
+    assert.equal((await tracked('/complaints/1?lang=hi')).body.message, hi, statusText);
   }
 });
 
 test('a missing complaint is 404 and malformed numbers are 400', async () => {
-  const missing = await get('/complaints/999');
+  const missing = await tracked('/complaints/999');
   assert.equal(missing.status, 404);
   assert.ok(missing.body.error);
   for (const id of ['0', 'abc', '2147483648', '1e3', '01', '-1', '1.5', '99999999999999999999']) {
-    const { status } = await get(`/complaints/${id}`);
+    const { status } = await tracked(`/complaints/${id}`);
     assert.equal(status, 400, id);
   }
-  const language = await get('/complaints/1?lang=fr');
+  const language = await tracked('/complaints/1?lang=fr');
   assert.equal(language.status, 400);
   assert.equal(lookups.length, 1);
-  const largest = await get('/complaints/2147483647');
+  const largest = await tracked('/complaints/2147483647');
   assert.equal(largest.status, 404);
 });
 
@@ -532,7 +770,7 @@ test('database failures are logged and never leaked to the caller', async () => 
       await get('/villages/Rampur'),
       await get('/nearby?lat=26&lng=80'),
       await post('/complaints', { description: 'Tap is broken' }),
-      await get('/complaints/3')
+      await tracked('/complaints/3')
     ];
     responses.forEach(({ status, body }) => {
       assert.equal(status, 500);

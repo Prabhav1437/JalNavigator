@@ -1,8 +1,9 @@
+const crypto = require('crypto');
 const express = require('express');
 const router = express.Router();
 const prisma = require('../database');
 const messages = require('../utils/farmerMessages');
-const { createRateLimiter } = require('../utils/rateLimiter');
+const { createRateLimiter, DEFAULT_MAX_CLIENTS } = require('../utils/rateLimiter');
 
 const MAX_INT = 2147483647;
 const CRITICAL_LEVEL = 20;
@@ -25,6 +26,8 @@ const CATEGORY_VALUES = messages.CATEGORIES.map((category) => category.value);
 const DECIMAL = /^-?\d{1,3}(\.\d{1,10})?$/;
 const RADIUS = /^\d{1,3}(\.\d{1,3})?$/;
 const POSITIVE_INT = /^[1-9]\d{0,9}$/;
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{16,64}$/;
+const TOKEN_MAX = 128;
 const CONTROL_CHARS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
 
 function readCount(name, fallback) {
@@ -36,7 +39,8 @@ function readCount(name, fallback) {
 
 const complaintLimiter = createRateLimiter({
   limit: readCount('FARMER_COMPLAINT_LIMIT', 20),
-  windowMs: Math.max(readCount('FARMER_COMPLAINT_WINDOW_MINUTES', 15), 1) * 60 * 1000
+  windowMs: Math.max(readCount('FARMER_COMPLAINT_WINDOW_MINUTES', 15), 1) * 60 * 1000,
+  maxClients: Math.max(readCount('FARMER_RATE_LIMIT_MAX_CLIENTS', DEFAULT_MAX_CLIENTS), 1)
 });
 
 const bad = (res, error) => res.status(400).json({ error });
@@ -104,12 +108,31 @@ function describeLevel(percent, recordedAt, lang) {
   };
 }
 
+const validPoint = (latitude, longitude) =>
+  Number.isFinite(latitude) && Math.abs(latitude) <= 90 && Number.isFinite(longitude) && Math.abs(longitude) <= 180;
+
 const mapUrl = (latitude, longitude) =>
-  `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`;
+  validPoint(latitude, longitude)
+    ? `https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=17/${latitude}/${longitude}`
+    : null;
+
+const sha256 = (value) => crypto.createHash('sha256').update(value).digest();
+
+function sameSecret(expected, given) {
+  return crypto.timingSafeEqual(sha256(String(expected)), sha256(String(given)));
+}
+
+function readTrackingToken(req) {
+  const raw = req.get('x-complaint-token') || req.query.token;
+  if (typeof raw !== 'string') return null;
+  const token = raw.trim();
+  return token.length >= 1 && token.length <= TOKEN_MAX ? token : null;
+}
 
 function villageStatus(row) {
   if (row.openAlerts > 0 || row.operational === 0 || row.criticalLevel > 0) return 'problem';
   if (row.lowLevel > 0 || row.maintenance > 0) return 'low';
+  if (!(row.withReadings > 0)) return 'unknown';
   return 'good';
 }
 
@@ -146,6 +169,7 @@ function villageSummaries(key, prefix, limit, nowIso) {
       SELECT "assetId", COUNT(*)::int AS "openCount"
       FROM "Alert"
       WHERE LOWER(BTRIM("status")) = 'open'
+        AND "createdAt" <= ${nowIso}::text::timestamp
       GROUP BY "assetId"
     )
     SELECT
@@ -154,6 +178,7 @@ function villageSummaries(key, prefix, limit, nowIso) {
       (COUNT(*) FILTER (WHERE LOWER(BTRIM(a."status")) = 'operational'))::int AS "operational",
       (COUNT(*) FILTER (WHERE LOWER(BTRIM(a."status")) = 'maintenance'))::int AS "maintenance",
       COALESCE(SUM(o."openCount"), 0)::int AS "openAlerts",
+      COUNT(l."assetId")::int AS "withReadings",
       (COUNT(*) FILTER (
         WHERE LOWER(BTRIM(a."status")) = 'operational'
           AND LOWER(BTRIM(a."type")) IN ('tank', 'borewell')
@@ -240,6 +265,8 @@ function nearbyWaterPoints({ lat, lng, radiusKm, type, limit, nowIso }) {
       FROM "Asset" a
       CROSS JOIN p
       WHERE LOWER(BTRIM(a."status")) = 'operational'
+        AND a."latitude" BETWEEN -90 AND 90
+        AND a."longitude" BETWEEN -180 AND 180
         AND (
           (${type}::text IS NULL AND LOWER(BTRIM(a."type")) IN ('tank', 'borewell', 'pump'))
           OR LOWER(BTRIM(a."type")) = ${type}::text
@@ -273,16 +300,19 @@ function nearbyWaterPoints({ lat, lng, radiusKm, type, limit, nowIso }) {
 }
 
 router.get('/', (req, res) => {
+  const lang = parseLang(req.query.lang);
+  if (!lang) return bad(res, 'lang must be one of: en, hi');
   res.json({
     name: 'JalNavigator Farmer API',
+    lang,
     languages: messages.LANGUAGES,
     categories: messages.CATEGORIES,
     endpoints: [
-      { method: 'GET', path: '/api/farmer/villages', description: 'Villages with a plain-language water supply status (optional ?q= name prefix, ?limit=)' },
-      { method: 'GET', path: '/api/farmer/villages/:name', description: 'Water points, status and notices for one village' },
-      { method: 'GET', path: '/api/farmer/nearby', description: 'Closest working water points to ?lat= and ?lng= (optional ?radiusKm=, ?type=, ?limit=)' },
-      { method: 'POST', path: '/api/farmer/complaints', description: 'Register a complaint and receive a complaint number' },
-      { method: 'GET', path: '/api/farmer/complaints/:id', description: 'Check the status of a complaint by its number' }
+      { method: 'GET', path: '/api/farmer/villages', description: messages.directoryText('villages', lang) },
+      { method: 'GET', path: '/api/farmer/villages/:name', description: messages.directoryText('village', lang) },
+      { method: 'GET', path: '/api/farmer/nearby', description: messages.directoryText('nearby', lang) },
+      { method: 'POST', path: '/api/farmer/complaints', description: messages.directoryText('register', lang) },
+      { method: 'GET', path: '/api/farmer/complaints/:id', description: messages.directoryText('track', lang) }
     ]
   });
 });
@@ -410,12 +440,50 @@ router.get('/nearby', async (req, res) => {
   }
 });
 
+function findComplaintByKey(idempotencyKey) {
+  return prisma.farmerComplaintAccess.findUnique({
+    where: { idempotencyKey },
+    select: { complaintId: true, token: true, requestHash: true, complaint: { select: { status: true } } }
+  });
+}
+
+function complaintCreatedBody(lang, complaintId, status, token) {
+  return {
+    lang,
+    complaintId,
+    status,
+    message: messages.complaintReceived(lang),
+    trackPath: `/api/farmer/complaints/${complaintId}`,
+    trackingToken: token
+  };
+}
+
+function replayComplaint(res, lang, existing, requestHash) {
+  if (existing.requestHash !== requestHash) {
+    return res.status(422).json({
+      error: 'This Idempotency-Key was already used for a different complaint. Use a new key for a new complaint.'
+    });
+  }
+  return res
+    .status(200)
+    .json({ ...complaintCreatedBody(lang, existing.complaintId, existing.complaint.status, existing.token), replayed: true });
+}
+
 router.post('/complaints', complaintLimiter, async (req, res) => {
   const lang = parseLang(req.query.lang);
   if (!lang) return bad(res, 'lang must be one of: en, hi');
 
   const body = req.body && typeof req.body === 'object' && !Array.isArray(req.body) ? req.body : null;
   if (!body) return bad(res, 'Send the complaint as a JSON object');
+
+  let idempotencyKey = null;
+  const rawKey = req.get('idempotency-key');
+  if (rawKey !== undefined) {
+    idempotencyKey = rawKey.trim();
+    if (!IDEMPOTENCY_KEY.test(idempotencyKey)) {
+      return bad(res, 'Idempotency-Key must be 16 to 64 letters, digits, dashes or underscores (a random UUID works)');
+    }
+  }
 
   let category = 'Other';
   if (body.category !== undefined && body.category !== null && body.category !== '') {
@@ -457,24 +525,36 @@ router.post('/complaints', complaintLimiter, async (req, res) => {
     }
   }
 
+  const requestHash = sha256(JSON.stringify([category, description, village, latitude, longitude])).toString('hex');
+
   try {
-    const complaint = await prisma.complaint.create({
-      data: {
-        title: village ? `${category} - ${village}` : category,
-        category,
-        description,
-        latitude,
-        longitude,
-        status: 'Pending'
+    if (idempotencyKey) {
+      const existing = await findComplaintByKey(idempotencyKey);
+      if (existing) return replayComplaint(res, lang, existing, requestHash);
+    }
+
+    const token = crypto.randomBytes(24).toString('base64url');
+    let complaint;
+    try {
+      complaint = await prisma.complaint.create({
+        data: {
+          title: village ? `${category} - ${village}` : category,
+          category,
+          description,
+          latitude,
+          longitude,
+          status: 'Pending',
+          farmerAccess: { create: { token, idempotencyKey, requestHash } }
+        }
+      });
+    } catch (err) {
+      if (idempotencyKey && err && err.code === 'P2002') {
+        const existing = await findComplaintByKey(idempotencyKey);
+        if (existing) return replayComplaint(res, lang, existing, requestHash);
       }
-    });
-    res.status(201).json({
-      lang,
-      complaintId: complaint.id,
-      status: complaint.status,
-      message: messages.complaintReceived(lang),
-      trackPath: `/api/farmer/complaints/${complaint.id}`
-    });
+      throw err;
+    }
+    res.status(201).json(complaintCreatedBody(lang, complaint.id, complaint.status, token));
   } catch (err) {
     fail(res, 'complaint', err);
   }
@@ -486,15 +566,23 @@ router.get('/complaints/:id', async (req, res) => {
   if (!POSITIVE_INT.test(req.params.id) || Number(req.params.id) > MAX_INT) {
     return bad(res, `complaint number must be an integer between 1 and ${MAX_INT}`);
   }
+  const token = readTrackingToken(req);
+  if (!token) {
+    return res.status(401).json({ error: 'The tracking code is required. Send it in the X-Complaint-Token header.' });
+  }
 
   try {
-    const complaint = await prisma.complaint.findUnique({
-      where: { id: Number(req.params.id) },
-      select: { id: true, title: true, category: true, status: true, createdAt: true }
+    const access = await prisma.farmerComplaintAccess.findUnique({
+      where: { complaintId: Number(req.params.id) },
+      select: {
+        token: true,
+        complaint: { select: { id: true, title: true, category: true, status: true, createdAt: true } }
+      }
     });
-    if (!complaint) {
-      return res.status(404).json({ error: 'Complaint not found. Check the complaint number.' });
+    if (!access || !sameSecret(access.token, token)) {
+      return res.status(404).json({ error: 'Complaint not found. Check the complaint number and tracking code.' });
     }
+    const complaint = access.complaint;
     const key = String(complaint.status).replace(/\s+/g, '').toLowerCase();
     res.json({
       lang,

@@ -3,6 +3,8 @@ process.env.FARMER_COMPLAINT_LIMIT = '0';
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const { requireTestDatabase } = require('./farmerTestDatabase');
+const farmerJsonErrors = require('../utils/farmerJsonErrors');
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -41,8 +43,14 @@ const SEED_ASSETS = [
   { key: 'literalTank', name: 'Literal Unassigned Tank', type: 'tank', village: 'Unassigned', status: 'Operational', latitude: 26.848, longitude: 80.948 },
   { key: 'meridianEast', name: 'Meridian East Tank', type: 'tank', village: 'Meridian', status: 'Operational', latitude: 0, longitude: 179.99 },
   { key: 'meridianWest', name: 'Meridian West Pump', type: 'pump', village: 'Meridian', status: 'Operational', latitude: 0, longitude: -179.99 },
-  { key: 'writerFirst', name: 'Writer Seed', type: 'tank', village: 'Writers', status: 'Operational', latitude: 1, longitude: 1 }
+  { key: 'writerFirst', name: 'Writer Seed', type: 'tank', village: 'Writers', status: 'Operational', latitude: 1, longitude: 1 },
+  { key: 'futureTank', name: 'Future Alert Tank', type: 'tank', village: 'Futureville', status: 'Operational', latitude: 10, longitude: 10 },
+  { key: 'silentTank', name: 'Silent Tank', type: 'tank', village: 'Silentpur', status: 'Operational', latitude: 11, longitude: 11 },
+  { key: 'wrappedLat', name: 'Wrapped Latitude Tank', type: 'tank', village: 'Brokenpur', status: 'Operational', latitude: 386.8467, longitude: 80.9462 },
+  { key: 'wrappedLng', name: 'Wrapped Longitude Pump', type: 'pump', village: 'Brokenpur', status: 'Operational', latitude: 26.8467, longitude: 440.9462 }
 ];
+
+const hasValidPoint = (asset) => Math.abs(asset.latitude) <= 90 && Math.abs(asset.longitude) <= 180;
 
 const EXPECTED_VILLAGE_STATUS = {
   rampur: 'good',
@@ -53,17 +61,15 @@ const EXPECTED_VILLAGE_STATUS = {
   gahra: 'problem',
   'nayi basti': 'good',
   रामपुर: 'good',
-  meridian: 'good',
-  writers: 'good'
+  meridian: 'unknown',
+  writers: 'unknown',
+  futureville: 'good',
+  silentpur: 'unknown',
+  brokenpur: 'unknown'
 };
 
 function runSuite(url) {
-  const databaseName = new URL(url).pathname.replace('/', '');
-  if (!/test/i.test(databaseName)) {
-    throw new Error(
-      `Refusing to run: the database name "${databaseName}" must contain "test" because this suite deletes every row.`
-    );
-  }
+  requireTestDatabase(url);
   process.env.DATABASE_URL = url;
   const prisma = require('../database');
 
@@ -71,16 +77,17 @@ function runSuite(url) {
   let origin;
   const ids = {};
 
-  const request = async (method, path, body) => {
+  const request = async (method, path, body, headers = {}) => {
     const res = await fetch(`${origin}${path}`, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body)
     });
     return { status: res.status, body: await res.json() };
   };
-  const get = (path) => request('GET', `/api/farmer${path}`);
-  const post = (path, body) => request('POST', `/api/farmer${path}`, body);
+  const get = (path, headers) => request('GET', `/api/farmer${path}`, undefined, headers);
+  const post = (path, body, headers) => request('POST', `/api/farmer${path}`, body, headers);
+  const track = (complaint, query = '') => get(`/complaints/${complaint.complaintId}${query}`, { 'X-Complaint-Token': complaint.trackingToken });
 
   async function clearAll() {
     await prisma.alert.deleteMany();
@@ -113,19 +120,22 @@ function runSuite(url) {
         reading('tulsiTank', 90, hoursAgo(1)),
         reading('gahraTank', 10, hoursAgo(1)),
         reading('nayiTank', 75, hoursAgo(1)),
-        reading('hindiTank', 80, hoursAgo(1))
+        reading('hindiTank', 80, hoursAgo(1)),
+        reading('futureTank', 80, hoursAgo(1))
       ]
     });
 
     await prisma.alert.createMany({
       data: [
         { assetId: ids.kheraTank, message: 'Critical low water level', severity: 'Critical', status: 'open', createdAt: hoursAgo(1) },
-        { assetId: ids.kheraTank, message: 'Critical low water level', severity: 'Critical', status: 'Resolved', createdAt: hoursAgo(48) }
+        { assetId: ids.kheraTank, message: 'Critical low water level', severity: 'Critical', status: 'Resolved', createdAt: hoursAgo(48) },
+        { assetId: ids.futureTank, message: 'Alert from the future', severity: 'Critical', status: 'Open', createdAt: daysAhead(1) }
       ]
     });
 
     const app = express();
     app.use(express.json());
+    app.use(farmerJsonErrors);
     app.use('/api', require('../routes/api'));
     await new Promise((resolve) => {
       server = app.listen(0, resolve);
@@ -255,7 +265,7 @@ function runSuite(url) {
     const { status, body } = await get(`/nearby?lat=${ORIGIN_POINT.lat}&lng=${ORIGIN_POINT.lng}&radiusKm=100&limit=20`);
     assert.equal(status, 200);
     const expected = SEED_ASSETS.filter(
-      (asset) => asset.status.toLowerCase() === 'operational' && ['tank', 'borewell', 'pump'].includes(asset.type)
+      (asset) => asset.status.toLowerCase() === 'operational' && ['tank', 'borewell', 'pump'].includes(asset.type) && hasValidPoint(asset)
     )
       .map((asset) => ({ ...asset, km: haversineKm(ORIGIN_POINT.lat, ORIGIN_POINT.lng, asset.latitude, asset.longitude) }))
       .filter((asset) => asset.km <= 100)
@@ -266,6 +276,8 @@ function runSuite(url) {
       assert.ok(Math.abs(point.distanceKm - expected[index].km) <= 0.011, point.name);
     });
     const names = body.waterPoints.map((point) => point.name);
+    assert.equal(names.includes('Wrapped Latitude Tank'), false);
+    assert.equal(names.includes('Wrapped Longitude Pump'), false);
     assert.equal(names.includes('Dhani Borewell'), false);
     assert.equal(names.includes('Tulsi Pump'), false);
     assert.equal(names.includes('Sonpur Pipeline'), false);
@@ -356,24 +368,24 @@ function runSuite(url) {
     const { body: created } = await post('/complaints', { category: 'No water supply', description: 'No water since two days' });
     const id = created.complaintId;
 
-    const pending = (await get(`/complaints/${id}`)).body;
+    const pending = (await track(created)).body;
     assert.equal(pending.status, 'Pending');
     assert.equal(pending.message, 'Your complaint has been received and is waiting for review.');
 
     const progress = await request('PUT', `/api/complaints/${id}`, { status: 'In Progress' });
     assert.equal(progress.status, 200);
-    const inProgress = (await get(`/complaints/${id}`)).body;
+    const inProgress = (await track(created)).body;
     assert.equal(inProgress.status, 'In Progress');
     assert.equal(inProgress.message, 'Officials are working on your complaint.');
-    assert.equal((await get(`/complaints/${id}?lang=hi`)).body.message, 'आपकी शिकायत पर काम चल रहा है।');
+    assert.equal((await track(created, '?lang=hi')).body.message, 'आपकी शिकायत पर काम चल रहा है।');
 
     await request('PUT', `/api/complaints/${id}`, { status: 'Resolved' });
-    const resolved = (await get(`/complaints/${id}`)).body;
+    const resolved = (await track(created)).body;
     assert.equal(resolved.status, 'Resolved');
     assert.equal(resolved.message, 'Your complaint has been resolved.');
 
     await request('PUT', `/api/complaints/${id}`, { status: 'Escalated' });
-    const escalated = (await get(`/complaints/${id}`)).body;
+    const escalated = (await track(created)).body;
     assert.equal(escalated.status, 'Escalated');
     assert.equal(escalated.message, 'Officials have updated the status of your complaint.');
   });
@@ -384,20 +396,141 @@ function runSuite(url) {
       latitude: 26.1,
       longitude: 80.1
     });
-    const { status, body } = await get(`/complaints/${created.complaintId}`);
+    const { status, body } = await track(created);
     assert.equal(status, 200);
     assert.deepEqual(Object.keys(body).sort(), ['category', 'complaintId', 'createdAt', 'lang', 'message', 'status', 'title']);
     assert.ok(!JSON.stringify(body).includes('9999999999'));
   });
 
-  test('complaints filed through the old admin route can also be tracked by number', async () => {
+  test('complaints filed through the old admin route have no tracking code and cannot be read here', async () => {
     const legacy = await request('POST', '/api/complaints', { title: 'Low water pressure in Ward 3', category: 'Low water pressure', description: 'Weak flow since morning' });
     assert.equal(legacy.status, 201);
-    const { status, body } = await get(`/complaints/${legacy.body.id}`);
-    assert.equal(status, 200);
-    assert.equal(body.title, 'Low water pressure in Ward 3');
-    assert.equal(body.category, 'Low water pressure');
-    assert.equal(body.status, 'Pending');
+    const missing = await get(`/complaints/${legacy.body.id}`);
+    assert.equal(missing.status, 401);
+    const guessed = await get(`/complaints/${legacy.body.id}`, { 'X-Complaint-Token': 'guess-guess-guess-guess' });
+    assert.equal(guessed.status, 404);
+    assert.equal(JSON.stringify(guessed.body).includes('Ward 3'), false);
+  });
+
+  test('a stranger cannot read a complaint by number, even with another complaint’s tracking code', async () => {
+    const mine = (await post('/complaints', { category: 'Dirty water', description: 'My own private complaint text', village: 'Rampur' })).body;
+    const theirs = (await post('/complaints', { category: 'No water supply', description: 'Somebody else’s complaint text', village: 'Sonpur' })).body;
+    assert.notEqual(mine.trackingToken, theirs.trackingToken);
+
+    assert.equal((await get(`/complaints/${theirs.complaintId}`)).status, 401);
+    const crossed = await get(`/complaints/${theirs.complaintId}`, { 'X-Complaint-Token': mine.trackingToken });
+    assert.equal(crossed.status, 404);
+    assert.equal(JSON.stringify(crossed.body).includes('Sonpur'), false);
+    const unknown = await get('/complaints/2147483647', { 'X-Complaint-Token': mine.trackingToken });
+    assert.equal(unknown.status, 404);
+    assert.deepEqual(unknown.body, crossed.body);
+
+    const own = await track(theirs);
+    assert.equal(own.status, 200);
+    assert.equal(own.body.title, 'No water supply - Sonpur');
+    const viaQuery = await get(`/complaints/${theirs.complaintId}?token=${encodeURIComponent(theirs.trackingToken)}`);
+    assert.equal(viaQuery.status, 200);
+  });
+
+  test('a retried complaint with the same Idempotency-Key is stored once and returns the same number and code', async () => {
+    const key = `retry-${Date.now()}-abcdef0123456789`;
+    const payload = { category: 'Dirty water', description: 'Idempotent complaint, sent twice', village: 'Rampur' };
+    const countBefore = await prisma.complaint.count();
+
+    const first = await post('/complaints', payload, { 'Idempotency-Key': key });
+    const retry = await post('/complaints', payload, { 'Idempotency-Key': key });
+    assert.equal(first.status, 201);
+    assert.equal(retry.status, 200);
+    assert.equal(retry.body.replayed, true);
+    assert.equal(retry.body.complaintId, first.body.complaintId);
+    assert.equal(retry.body.trackingToken, first.body.trackingToken);
+    assert.equal(await prisma.complaint.count(), countBefore + 1);
+
+    const different = await post('/complaints', { ...payload, description: 'A different complaint, same key' }, { 'Idempotency-Key': key });
+    assert.equal(different.status, 422);
+    assert.equal(await prisma.complaint.count(), countBefore + 1);
+
+    const another = await post('/complaints', payload, { 'Idempotency-Key': `${key}-second` });
+    assert.equal(another.status, 201);
+    assert.notEqual(another.body.complaintId, first.body.complaintId);
+    assert.equal(await prisma.complaint.count(), countBefore + 2);
+  });
+
+  test('simultaneous retries with one Idempotency-Key create exactly one complaint', async () => {
+    const key = `parallel-${Date.now()}-abcdef0123456789`;
+    const countBefore = await prisma.complaint.count();
+    const responses = await Promise.all(
+      Array.from({ length: 12 }, () => post('/complaints', { description: 'Sent twelve times at once' }, { 'Idempotency-Key': key }))
+    );
+    responses.forEach((response) => assert.ok([200, 201].includes(response.status), JSON.stringify(response)));
+    assert.equal(responses.filter((response) => response.status === 201).length, 1);
+    assert.equal(new Set(responses.map((response) => response.body.complaintId)).size, 1);
+    assert.equal(new Set(responses.map((response) => response.body.trackingToken)).size, 1);
+    assert.equal(await prisma.complaint.count(), countBefore + 1);
+    assert.equal(await prisma.farmerComplaintAccess.count({ where: { idempotencyKey: key } }), 1);
+  });
+
+  test('deleting a complaint also removes its tracking record', async () => {
+    const created = (await post('/complaints', { description: 'This complaint will be deleted' })).body;
+    assert.equal(await prisma.farmerComplaintAccess.count({ where: { complaintId: created.complaintId } }), 1);
+    await prisma.complaint.delete({ where: { id: created.complaintId } });
+    assert.equal(await prisma.farmerComplaintAccess.count({ where: { complaintId: created.complaintId } }), 0);
+    assert.equal((await track(created)).status, 404);
+  });
+
+  test('malformed JSON gets a JSON 400 from the running API', async () => {
+    const res = await fetch(`${origin}/api/farmer/complaints`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"description": ' });
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: 'The request body is not valid JSON.' });
+  });
+
+  test('an open alert dated after the request is neither counted nor listed, so a problem always has a notice', async () => {
+    const detail = (await get('/villages/Futureville')).body;
+    assert.equal(detail.openProblems, 0);
+    assert.deepEqual(detail.notices, []);
+    assert.equal(detail.status, 'good');
+    const listed = (await get('/villages?q=future')).body.villages[0];
+    assert.equal(listed.status, 'good');
+  });
+
+  test('a village with working sources but no readings is unknown, in English and Hindi', async () => {
+    const detail = (await get('/villages/Silentpur')).body;
+    assert.equal(detail.status, 'unknown');
+    assert.equal(detail.workingWaterPoints, 1);
+    assert.equal(detail.waterPoints[0].waterLevel, null);
+    assert.match(detail.message, /no water level readings/);
+    const hindi = (await get('/villages/Silentpur?lang=hi')).body;
+    assert.match(hindi.message, /[\u0900-\u097F]/);
+  });
+
+  test('assets stored with impossible coordinates never show up as nearby or get a map link', async () => {
+    await prisma.$executeRaw`
+      INSERT INTO "Asset" ("name", "type", "latitude", "longitude", "status", "village")
+      VALUES ('Not A Number Tank', 'tank', 'NaN'::float8, 80.9462, 'Operational', 'Brokenpur'),
+             ('Infinite Tank', 'tank', 26.8467, 'Infinity'::float8, 'Operational', 'Brokenpur')
+    `;
+    const nearby = (await get(`/nearby?lat=${ORIGIN_POINT.lat}&lng=${ORIGIN_POINT.lng}&radiusKm=100&limit=20`)).body;
+    const names = nearby.waterPoints.map((point) => point.name);
+    ['Wrapped Latitude Tank', 'Wrapped Longitude Pump', 'Not A Number Tank', 'Infinite Tank'].forEach((name) => {
+      assert.equal(names.includes(name), false, name);
+    });
+    assert.ok(names.includes('Rampur Tank'));
+    nearby.waterPoints.forEach((point) => assert.ok(Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180));
+
+    const detail = (await get('/villages/Brokenpur')).body;
+    assert.equal(detail.waterPoints.length, 4);
+    detail.waterPoints.forEach((point) => assert.equal(point.mapUrl, null));
+    await prisma.asset.deleteMany({ where: { name: { in: ['Not A Number Tank', 'Infinite Tank'] } } });
+  });
+
+  test('the schema carries the indexes that the latest-reading and open-alert queries need', async () => {
+    const indexes = await prisma.$queryRaw`
+      SELECT tablename::text AS "table", indexdef::text AS "definition" FROM pg_indexes WHERE schemaname = current_schema()::text
+    `;
+    const readingIndex = indexes.find((row) => row.table === 'SensorReading' && /\("assetId", "recordedAt" DESC/.test(row.definition));
+    const alertIndex = indexes.find((row) => row.table === 'Alert' && /\("assetId", "createdAt"\)/.test(row.definition));
+    assert.ok(readingIndex, 'missing SensorReading index on (assetId, recordedAt DESC, id DESC)');
+    assert.ok(alertIndex, 'missing Alert index on (assetId, createdAt)');
   });
 
   test('null bytes, Hindi text and a 0,0 location are stored correctly instead of failing', async () => {
@@ -440,10 +573,11 @@ function runSuite(url) {
   });
 
   test('unknown complaint numbers are 404 and oversized ones are 400, never 500', async () => {
-    assert.equal((await get('/complaints/999999')).status, 404);
-    assert.equal((await get('/complaints/2147483647')).status, 404);
-    assert.equal((await get('/complaints/2147483648')).status, 400);
-    assert.equal((await get('/complaints/abc')).status, 400);
+    const code = { 'X-Complaint-Token': 'some-tracking-code-0123456789' };
+    assert.equal((await get('/complaints/999999', code)).status, 404);
+    assert.equal((await get('/complaints/2147483647', code)).status, 404);
+    assert.equal((await get('/complaints/2147483648', code)).status, 400);
+    assert.equal((await get('/complaints/abc', code)).status, 400);
   });
 
   test('a village detail never disagrees with itself while rows are being written', async () => {
