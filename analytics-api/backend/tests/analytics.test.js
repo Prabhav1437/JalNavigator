@@ -1,3 +1,6 @@
+process.env.ANALYTICS_CACHE_SECONDS = '0';
+process.env.ANALYTICS_MAX_CONCURRENT = '0';
+
 const { test, before, after, beforeEach, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
@@ -53,6 +56,26 @@ function createModel(rows) {
 const behavior = { queryRaw: () => [], transaction: null };
 const queryRawCalls = [];
 const transactionCalls = [];
+const sessionStatements = [];
+
+const tx = {
+  asset: createModel(assets),
+  complaint: createModel(complaints),
+  alert: createModel(alerts),
+  sensorReading: createModel(readings),
+  $executeRawUnsafe: (sql) => {
+    sessionStatements.push(sql);
+    return Promise.resolve(0);
+  },
+  $queryRaw: (strings, ...values) => {
+    queryRawCalls.push({ sql: strings.join('?'), values });
+    try {
+      return Promise.resolve(behavior.queryRaw());
+    } catch (err) {
+      return Promise.reject(err);
+    }
+  }
+};
 
 const databasePath = require.resolve('../database');
 require.cache[databasePath] = {
@@ -60,22 +83,11 @@ require.cache[databasePath] = {
   filename: databasePath,
   loaded: true,
   exports: {
-    asset: createModel(assets),
-    complaint: createModel(complaints),
-    alert: createModel(alerts),
-    sensorReading: createModel(readings),
-    $queryRaw: (strings, ...values) => {
-      queryRawCalls.push({ sql: strings.join('?'), values });
-      try {
-        return Promise.resolve(behavior.queryRaw());
-      } catch (err) {
-        return Promise.reject(err);
-      }
-    },
-    $transaction: (operations, options) => {
+    ...tx,
+    $transaction: (work, options) => {
       transactionCalls.push(options);
       if (behavior.transaction) return Promise.reject(behavior.transaction);
-      return Promise.all(operations);
+      return typeof work === 'function' ? work(tx) : Promise.all(work);
     }
   }
 };
@@ -102,6 +114,7 @@ beforeEach(() => {
   behavior.transaction = null;
   queryRawCalls.length = 0;
   transactionCalls.length = 0;
+  sessionStatements.length = 0;
 });
 
 const get = async (path) => {
@@ -230,7 +243,8 @@ test('readings always bounds the window above by now', async () => {
   assert.match(sql, /"recordedAt" <= /);
   assert.equal(values[0], '20');
   assert.ok(Math.abs(Date.parse(values[1]) - Date.now()) < 5000);
-  assert.deepEqual(values.slice(2), [null, null, null, null]);
+  assert.deepEqual(values.slice(2), [null, null, null, null, '1000']);
+  assert.match(sql, /LIMIT /);
 });
 
 test('readings with days and assetId pass both filters as parameters', async () => {
@@ -238,7 +252,7 @@ test('readings with days and assetId pass both filters as parameters', async () 
   const { values } = queryRawCalls[0];
   assert.equal(Date.parse(values[1]) - Date.parse(values[2]), 7 * DAY_MS);
   assert.equal(values[2], values[3]);
-  assert.deepEqual(values.slice(4), ['3', '3']);
+  assert.deepEqual(values.slice(4), ['3', '3', '1000']);
 });
 
 test('readings maps database rows into the documented shape', async () => {
@@ -266,6 +280,7 @@ test('readings maps database rows into the documented shape', async () => {
   assert.equal(status, 200);
   assert.equal(body.days, null);
   assert.equal(body.lowLevelThreshold, 20);
+  assert.equal(body.maxAssets, 1000);
   assert.deepEqual(body.assets, [
     {
       assetId: 1,
@@ -284,19 +299,24 @@ test('readings maps database rows into the documented shape', async () => {
 
 test('villages maps database rows and groups blank villages in one SQL statement', async () => {
   behavior.queryRaw = () => [
-    { village: 'Rampur', totalAssets: 5, operational: 4, maintenance: 1, inactive: 0, openAlerts: 3 },
-    { village: 'Unassigned', totalAssets: 2, operational: 2, maintenance: 0, inactive: 0, openAlerts: 0 }
+    { village: 'Rampur', totalAssets: 6, operational: 4, maintenance: 1, inactive: 0, other: 1, openAlerts: 3 },
+    { village: 'Unassigned', totalAssets: 2, operational: 2, maintenance: 0, inactive: 0, other: 0, openAlerts: 0 }
   ];
   const { status, body } = await get('/villages');
   assert.equal(status, 200);
   assert.equal(queryRawCalls.length, 1);
   assert.deepEqual(body, [
-    { village: 'Rampur', totalAssets: 5, operational: 4, maintenance: 1, inactive: 0, openAlerts: 3 },
-    { village: 'Unassigned', totalAssets: 2, operational: 2, maintenance: 0, inactive: 0, openAlerts: 0 }
+    { village: 'Rampur', totalAssets: 6, operational: 4, maintenance: 1, inactive: 0, other: 1, openAlerts: 3 },
+    { village: 'Unassigned', totalAssets: 2, operational: 2, maintenance: 0, inactive: 0, other: 0, openAlerts: 0 }
   ]);
+  body.forEach((row) => {
+    assert.equal(row.operational + row.maintenance + row.inactive + row.other, row.totalAssets, row.village);
+    assert.deepEqual(Object.keys(row), ['village', 'totalAssets', 'operational', 'maintenance', 'inactive', 'other', 'openAlerts']);
+  });
   const { sql } = queryRawCalls[0];
-  assert.match(sql, /COALESCE\(NULLIF\(LOWER\(BTRIM\(a\."village"\)\), ''\), 'unassigned'\)/);
-  assert.match(sql, /LOWER\(BTRIM\("status"\)\) = 'open'/);
+  assert.match(sql, /COALESCE\(NULLIF\(LOWER\(BTRIM\(a\."village", \?::text\)\), ''\), 'unassigned'\)/);
+  assert.match(sql, /LOWER\(BTRIM\("status", \?::text\)\) = 'open'/);
+  assert.match(sql, /NOT IN \('operational', 'maintenance', 'inactive'\)/);
   assert.match(sql, /"village" ASC/);
 });
 
@@ -400,4 +420,44 @@ test('the existing api directory still responds', async () => {
   const body = await res.json();
   assert.equal(res.status, 200);
   assert.equal(body.name, 'JalNavigator REST API');
+});
+
+test('every village bucket trims the same whitespace that JavaScript trims', async () => {
+  const { TRIM_CHARS } = require('../utils/analyticsGuard');
+  behavior.queryRaw = () => [];
+  await get('/villages');
+  const { values } = queryRawCalls[0];
+  assert.equal(values.length, 4);
+  values.forEach((value) => assert.equal(value, TRIM_CHARS));
+  const padded = `\u00a0\t\n\u3000 Rampur \u2003\ufeff\r`;
+  assert.equal(padded.trim(), 'Rampur');
+  Array.from(TRIM_CHARS).forEach((character) => {
+    assert.equal(`${character}Rampur${character}`.trim(), 'Rampur', JSON.stringify(character));
+  });
+  Array.from(padded).forEach((character) => {
+    if (character !== 'R' && !/[ampur]/.test(character)) {
+      assert.ok(TRIM_CHARS.includes(character), `SQL would keep ${JSON.stringify(character)}`);
+    }
+  });
+});
+
+test('every database statement runs in a transaction pinned to UTC with a statement timeout', async () => {
+  for (const path of ['/summary', '/readings', '/villages', '/trends']) {
+    sessionStatements.length = 0;
+    transactionCalls.length = 0;
+    const { status } = await get(path);
+    assert.equal(status, 200, path);
+    assert.deepEqual(
+      sessionStatements,
+      ["SET LOCAL TimeZone = 'UTC'", 'SET LOCAL statement_timeout = 5000'],
+      path
+    );
+    assert.equal(transactionCalls.length, 1, path);
+  }
+});
+
+test('the summary snapshot and the UTC pin share one transaction', async () => {
+  await get('/summary');
+  assert.deepEqual(transactionCalls, [{ isolationLevel: 'RepeatableRead' }]);
+  assert.deepEqual(sessionStatements, ["SET LOCAL TimeZone = 'UTC'", 'SET LOCAL statement_timeout = 5000']);
 });

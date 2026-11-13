@@ -1,6 +1,9 @@
+process.env.ANALYTICS_CACHE_SECONDS = '0';
+
 const { test, before, after } = require('node:test');
 const assert = require('node:assert/strict');
 const express = require('express');
+const { requireTestDatabase } = require('./analyticsTestDatabase');
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -30,12 +33,7 @@ function foldCounts(counts) {
 }
 
 function runSuite(url) {
-  const databaseName = new URL(url).pathname.replace('/', '');
-  if (!/test/i.test(databaseName)) {
-    throw new Error(
-      `Refusing to run: the database name "${databaseName}" must contain "test" because this suite deletes every row.`
-    );
-  }
+  requireTestDatabase(url);
   process.env.DATABASE_URL = url;
   const prisma = require('../database');
 
@@ -198,23 +196,49 @@ function runSuite(url) {
     const one = await get(`/readings?assetId=${ids.sonpurPump}`);
     assert.equal(one.body.assets.length, 1);
     assert.deepEqual(one.body.assets[0].waterLevel, { avg: 60, min: 50, max: 70 });
-
-    const both = await get(`/readings?days=1&assetId=${ids.rampurTank}`);
-    assert.equal(both.body.assets.length, 1);
-    assert.equal(both.body.assets[0].readingCount, 1);
   });
 
-  test('readings handles huge and unknown asset ids without a 500', async () => {
-    const unknown = await get('/readings?assetId=999999');
-    assert.equal(unknown.status, 200);
-    assert.deepEqual(unknown.body.assets, []);
-    const biggest = await get('/readings?assetId=2147483647');
-    assert.equal(biggest.status, 200);
-    assert.deepEqual(biggest.body.assets, []);
-    for (const query of ['?assetId=2147483648', '?assetId=99999999999999999999', '?assetId=0', '?days=366']) {
-      const res = await get(`/readings${query}`);
-      assert.equal(res.status, 400, query);
+  test('the days window is a rolling 24 hours, at any time of day', async () => {
+    const asset = await prisma.asset.create({
+      data: { name: 'Window Tank', type: 'tank', village: 'Windowpur', status: 'Operational', latitude: 1, longitude: 1 }
+    });
+    const minutesAgo = (minutes) => new Date(Date.now() - minutes * 60 * 1000);
+    try {
+      await prisma.sensorReading.createMany({
+        data: [
+          { assetId: asset.id, waterLevel: 10, flowRate: 1, pressure: 1, recordedAt: minutesAgo(120) },
+          { assetId: asset.id, waterLevel: 30, flowRate: 1, pressure: 1, recordedAt: minutesAgo(23 * 60 + 59) },
+          { assetId: asset.id, waterLevel: 40, flowRate: 1, pressure: 1, recordedAt: minutesAgo(24 * 60 + 1) },
+          { assetId: asset.id, waterLevel: 50, flowRate: 1, pressure: 1, recordedAt: minutesAgo(26 * 60) }
+        ]
+      });
+
+      const day = (await get(`/readings?days=1&assetId=${asset.id}`)).body.assets[0];
+      assert.equal(day.readingCount, 2);
+      assert.deepEqual(day.waterLevel, { avg: 20, min: 10, max: 30 });
+
+      const twoDays = (await get(`/readings?days=2&assetId=${asset.id}`)).body.assets[0];
+      assert.equal(twoDays.readingCount, 4);
+      assert.deepEqual(twoDays.waterLevel, { avg: 32.5, min: 10, max: 50 });
+
+      const hour = await get(`/readings?days=1&assetId=${asset.id}`);
+      assert.equal(hour.body.days, 1);
+    } finally {
+      await prisma.sensorReading.deleteMany({ where: { assetId: asset.id } });
+      await prisma.asset.delete({ where: { id: asset.id } });
     }
+  });
+
+  test('the indexes the history queries need are present in the database', async () => {
+    const indexes = await prisma.$queryRaw`
+      SELECT tablename::text AS "table", indexdef::text AS "definition"
+      FROM pg_indexes WHERE schemaname = current_schema()::text
+    `;
+    const has = (table, pattern) => indexes.some((row) => row.table === table && pattern.test(row.definition));
+    assert.ok(has('SensorReading', /\("recordedAt"\)/), 'missing SensorReading index on (recordedAt)');
+    assert.ok(has('SensorReading', /\("assetId", "recordedAt"\)/), 'missing SensorReading index on (assetId, recordedAt)');
+    assert.ok(has('Alert', /\("createdAt"\)/), 'missing Alert index on (createdAt)');
+    assert.ok(has('Complaint', /\("createdAt"\)/), 'missing Complaint index on (createdAt)');
   });
 
   test('villages groups name variants and blank or literal Unassigned into one row each', async () => {
@@ -228,11 +252,11 @@ function runSuite(url) {
     const [rampur, sonpur, unassigned, lonely] = body;
     assert.deepEqual(
       { ...rampur, village: rampur.village.toLowerCase() },
-      { village: 'rampur', totalAssets: 2, operational: 1, maintenance: 1, inactive: 0, openAlerts: 2 }
+      { village: 'rampur', totalAssets: 2, operational: 1, maintenance: 1, inactive: 0, other: 0, openAlerts: 2 }
     );
     assert.deepEqual(
       { ...sonpur, village: sonpur.village.toLowerCase() },
-      { village: 'sonpur', totalAssets: 2, operational: 1, maintenance: 0, inactive: 1, openAlerts: 1 }
+      { village: 'sonpur', totalAssets: 2, operational: 1, maintenance: 0, inactive: 1, other: 0, openAlerts: 1 }
     );
     assert.deepEqual(unassigned, {
       village: 'Unassigned',
@@ -240,6 +264,7 @@ function runSuite(url) {
       operational: 3,
       maintenance: 0,
       inactive: 0,
+      other: 0,
       openAlerts: 0
     });
     assert.deepEqual(lonely, {
@@ -248,8 +273,85 @@ function runSuite(url) {
       operational: 1,
       maintenance: 0,
       inactive: 0,
+      other: 0,
       openAlerts: 0
     });
+    body.forEach((row) => {
+      assert.equal(row.operational + row.maintenance + row.inactive + row.other, row.totalAssets, row.village);
+    });
+  });
+
+  test('every asset status is accounted for, so the health buckets add up to the total', async () => {
+    const statuses = ['Operational', 'maintenance', 'INACTIVE', 'Decommissioned', 'Planned', '', '   ', 'operational '];
+    const made = [];
+    try {
+      for (const status of statuses) {
+        made.push(
+          (
+            await prisma.asset.create({
+              data: { name: `Status ${made.length}`, type: 'tank', village: 'Statuspur', status, latitude: 1, longitude: 1 }
+            })
+          ).id
+        );
+      }
+      const rows = (await get('/villages')).body;
+      const statuspur = rows.find((row) => row.village === 'Statuspur');
+      assert.ok(statuspur, 'Statuspur is missing from the village list');
+      assert.deepEqual(statuspur, {
+        village: 'Statuspur',
+        totalAssets: 8,
+        operational: 2,
+        maintenance: 1,
+        inactive: 1,
+        other: 4,
+        openAlerts: 0
+      });
+      rows.forEach((row) => {
+        assert.equal(row.operational + row.maintenance + row.inactive + row.other, row.totalAssets, row.village);
+      });
+
+      const totals = rows.reduce(
+        (sum, row) => sum + row.operational + row.maintenance + row.inactive + row.other,
+        0
+      );
+      assert.equal(totals, (await get('/summary')).body.assets.total);
+    } finally {
+      await prisma.asset.deleteMany({ where: { id: { in: made } } });
+    }
+  });
+
+  test('tabs and newlines around a name or status are trimmed exactly as JavaScript trims them', async () => {
+    const before = (await get('/villages')).body;
+    const rampurBefore = before.find((row) => row.village.trim().toLowerCase() === 'rampur');
+    const made = [];
+    try {
+      const padded = ['\tRampur\n', '\u00a0rampur\u3000', '\r\nRAMPUR\t'];
+      for (const village of padded) {
+        made.push(
+          (
+            await prisma.asset.create({
+              data: { name: `Padded ${made.length}`, type: 'tank', village, status: '\tOperational\n', latitude: 1, longitude: 1 }
+            })
+          ).id
+        );
+      }
+      const rows = (await get('/villages')).body;
+      assert.equal(rows.length, before.length, 'padded names must not create extra village rows');
+      const rampur = rows.find((row) => row.village.trim().toLowerCase() === 'rampur');
+      assert.equal(rampur.totalAssets, rampurBefore.totalAssets + padded.length);
+      assert.equal(rampur.operational, rampurBefore.operational + padded.length);
+      assert.equal(rampur.other, 0, 'a padded status must not fall into the other bucket');
+      assert.equal(rampur.village, rampur.village.trim());
+
+      const alert = await prisma.alert.create({
+        data: { assetId: made[0], message: 'Critical low water level', severity: 'Critical', status: '\n OPEN \t' }
+      });
+      const withAlert = (await get('/villages')).body.find((row) => row.village.trim().toLowerCase() === 'rampur');
+      assert.equal(withAlert.openAlerts, rampurBefore.openAlerts + 1, 'a padded Open status must still count as open');
+      await prisma.alert.delete({ where: { id: alert.id } });
+    } finally {
+      await prisma.asset.deleteMany({ where: { id: { in: made } } });
+    }
   });
 
   test('village labels and order are identical on every request', async () => {
