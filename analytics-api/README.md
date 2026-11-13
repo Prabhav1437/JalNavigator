@@ -1,129 +1,86 @@
 # Analytics API
 
-Four read-only endpoints under `/api/analytics` that turn the existing data into numbers a chart or report can use. It needs **no schema change and no new dependency**: it reads the existing `Asset`, `SensorReading`, `Alert` and `Complaint` models through the shared Prisma client.
-
-## Endpoints
+Four read-only endpoints under `/api/analytics`. The feature is **already wired into the backend**, so there is nothing to copy or patch: start the server and the endpoints answer.
 
 | Method | Path | Purpose |
 | :--- | :--- | :--- |
 | `GET` | `/api/analytics` | Directory of the endpoints below |
-| `GET` | `/api/analytics/summary` | Counts grouped by asset type and status, complaint status and category, alert severity and status |
-| `GET` | `/api/analytics/readings` | Per-asset min, average and max for water level, flow rate and pressure |
+| `GET` | `/api/analytics/summary` | Counts by asset type and status, complaint status and category, alert severity and status |
+| `GET` | `/api/analytics/readings` | Per-asset min, average and max for water level, flow rate and pressure, lowest average first |
 | `GET` | `/api/analytics/villages` | Per-village asset health and open alert counts |
 | `GET` | `/api/analytics/trends` | Daily alerts, complaints and readings, zero-filled |
 
-### Query parameters
+Full request and response details are in `docs/API.md`, section 7.
 
-- `/readings`: `days` (1 to 365, optional, default is all time) and `assetId` (positive integer, optional).
-- `/trends`: `days` (1 to 365, default 7).
-- Invalid values return `400` with `{ "error": "..." }`.
-
-### Example: `GET /api/analytics/summary`
-
-```json
-{
-  "assets": { "total": 5, "byType": { "tank": 1, "borewell": 2, "pump": 1, "pipeline": 1 }, "byStatus": { "Operational": 4, "Maintenance": 1 } },
-  "complaints": { "total": 3, "resolvedPercent": 33.33, "byStatus": { "Pending": 1, "In Progress": 1, "Resolved": 1 }, "byCategory": { "Pipeline leakage": 1, "Low water pressure": 1, "Dirty water": 1 } },
-  "alerts": { "total": 1, "bySeverity": { "Critical": 1 }, "byStatus": { "Open": 1 } },
-  "readings": { "total": 3 }
-}
-```
-
-### Example: `GET /api/analytics/readings?days=7`
-
-Assets are sorted by average water level, lowest first, so the ones most at risk come first. `lowLevelReadings` counts readings under the app's 20% critical threshold.
-
-```json
-{
-  "days": 7,
-  "lowLevelThreshold": 20,
-  "assets": [
-    {
-      "assetId": 1, "name": "Rampur Central Overhead Tank", "type": "tank", "village": "Rampur", "status": "Operational",
-      "readingCount": 2, "lowLevelReadings": 1,
-      "waterLevel": { "avg": 20, "min": 10, "max": 30 },
-      "flowRate": { "avg": 6, "min": 5, "max": 7 },
-      "pressure": { "avg": 1.5, "min": 1, "max": 2 }
-    }
-  ]
-}
-```
-
-### Example: `GET /api/analytics/villages`
-
-Village names are matched case-insensitively and trimmed, so `Rampur` and ` rampur ` count as one village. Assets with no village are grouped as `Unassigned`. Rows are sorted by open alerts, then asset count.
-
-```json
-[
-  { "village": "Rampur", "totalAssets": 5, "operational": 4, "maintenance": 1, "inactive": 0, "openAlerts": 1 }
-]
-```
-
-### Example: `GET /api/analytics/trends?days=3`
-
-Days are UTC calendar days and include today. Days with no activity appear with zeros, so the series can be plotted directly.
-
-```json
-{
-  "days": 3, "from": "2026-11-11", "to": "2026-11-13",
-  "series": [
-    { "date": "2026-11-11", "alerts": 0, "complaints": 1, "readings": 2 },
-    { "date": "2026-11-12", "alerts": 1, "complaints": 0, "readings": 1 },
-    { "date": "2026-11-13", "alerts": 0, "complaints": 0, "readings": 0 }
-  ]
-}
-```
-
-The numbers in these examples are illustrative; the shapes are exactly what the route returns.
-
-## Files
+## Where the code lives
 
 ```
-analytics-api/
-├── analytics-api.patch                    2 added lines in routes/api.js
-└── backend/
-    ├── routes/analytics.js                the router
-    └── tests/analytics.test.js            10 tests, no database needed
+backend/
+├── routes/analytics.js                          the router
+├── routes/api.js                                mounts it: router.use('/analytics', analyticsRoutes)
+├── package.json                                 adds "test": "node --test"
+└── tests/
+    ├── analytics.test.js                        19 unit tests, no database needed
+    └── analytics.integration.test.js            11 tests against a real PostgreSQL test database
+docs/API.md                                      section 7 documents the endpoints
 ```
 
-## Install
+No schema change and no new dependency.
 
-From the repository root:
+## Behaviour worth knowing
 
-```bash
-cp -r path/to/analytics-api/backend/. backend/
-patch -p1 < path/to/analytics-api/analytics-api.patch
-```
+- **Database-side aggregation.** `readings`, `villages` and `trends` are each one SQL statement that returns only the grouped result. No raw rows are loaded into Node, so memory stays flat as the tables grow.
+- **Consistent snapshots.** `summary` runs its seven queries in one repeatable-read transaction, and the other three are single statements, so totals never disagree with each other when data is written mid-request.
+- **Case-insensitive statuses and villages.** `Resolved` and `resolved` count as one status, `Open` and `open` as one alert state, and `Rampur` and ` rampur ` as one village. Blank villages and the literal `Unassigned` share one `Unassigned` row.
+- **Stable labels.** Village rows use the same name on every request, and rows are fully ordered.
+- **Future readings are ignored.** `readings` and `trends` only count rows dated up to now.
+- **Input is validated strictly.** `days` must be 1 to 365 and `assetId` 1 to 2147483647, both plain digits. Anything else returns `400` before touching the database.
+- **Failures are logged.** A database error is written to the server log as `[analytics] <endpoint> failed:` with the full error, and the caller gets `{ "error": "Failed to compute analytics" }` so internals are not exposed.
+- **Odd labels are safe.** Values such as `__proto__` or `constructor` in a status column are counted like any other label.
+- **Table names.** The SQL uses the default Prisma table names (`"Asset"`, `"Alert"`, `"Complaint"`, `"SensorReading"`). If you add `@@map` to the schema, update the queries in `routes/analytics.js`.
 
-The patch adds these two lines to `backend/routes/api.js`; you can add them by hand instead:
+## Running the tests
 
-```js
-const analyticsRoutes = require('./analytics');
-router.use('/analytics', analyticsRoutes);
-```
-
-Restart the backend (`npm start`) and open `http://localhost:3000/api/analytics/summary`.
-
-Once deployed, the same paths are served under the production base URL from `docs/API.md` (for example `https://jalnavigator.prabhav.tech/api/analytics/summary`).
-
-## Run the tests
+Unit tests (no database, run anywhere):
 
 ```bash
 cd backend
-node --test tests/analytics.test.js
+npm test
 ```
 
-The tests mount the project's real `/api` router, so they also confirm the new route is wired in and the existing routes still respond. They replace the database with a small in-memory stand-in, so no PostgreSQL is required. Run them after installing, since they expect `routes/analytics.js` and the patched `routes/api.js` to be present.
+The integration tests are skipped unless you point them at a **dedicated test database**. They delete every row in it, so the suite refuses to run unless the database name contains `test`.
 
-## Notes
+```bash
+createdb jalnavigator_test
+cd backend
+export ANALYTICS_TEST_DATABASE_URL="postgresql://postgres:password@localhost:5432/jalnavigator_test?schema=public"
+DATABASE_URL="$ANALYTICS_TEST_DATABASE_URL" npx prisma db push
+npm test
+```
 
-- Everything is read-only, so nothing here can change your data.
-- The main endpoint list in `GET /api` and the API Explorer tab are left untouched. The Explorer only knows how to test the original routes, so listing the new ones there would show a misleading "requires payload" message. The analytics routes describe themselves at `GET /api/analytics`.
-- Error handling follows the existing routes (`500` with `err.message`) to stay consistent with the codebase.
-- Totals such as complaint counts are computed in the database with `groupBy`. The `/trends` and `/villages` endpoints do their final bucketing in JavaScript, which is fine at this project's data size. For very large tables you would push that into SQL.
+They cover the raw SQL against real PostgreSQL, including a 30000-reading dataset and a test that reads the summary while another connection writes rows.
+
+## What changed in this revision
+
+| # | Issue | Fix |
+| :--- | :--- | :--- |
+| 1 | Endpoints returned 404 until patched | Router is mounted in `backend/routes/api.js`; a test checks every listed path answers 200 |
+| 2 | Large tables loaded into Node | `readings`, `villages` and `trends` aggregate in SQL |
+| 3 | `__proto__` / `constructor` labels corrupted counts | Counting uses a `Map`; results are built with `Object.fromEntries` |
+| 4 | Totals could disagree under concurrent writes | Repeatable-read transaction for `summary`, single statements elsewhere |
+| 5 | Oversized `assetId` returned 500 | Strict 1 to 2147483647 check returns 400 |
+| 6 | Status matching was case-sensitive | Normalised in JavaScript and in SQL (`LOWER(BTRIM(...))`) |
+| 7 | Blank and `Unassigned` villages split | Both map to one grouping key |
+| 8 | Village label depended on row order | Label is `MIN` of the trimmed names, and ordering is total |
+| 9 | Future readings skewed averages | Upper bound of "now" on `readings` and `trends` |
+| 10 | Database failures not logged | Every handler logs through one `fail()` helper |
+| 11 | Null trend buckets could pass | Tests assert strict `0` and `typeof number` for every quiet day |
+| 12 | Wrong endpoint paths could pass | Test asserts the exact method and path of every endpoint |
 
 ## How this was verified
 
-On a scratch copy of the uploaded repo, all 10 tests pass with the patch applied, and the patch applies cleanly to a pristine copy.
+- All 19 unit tests and 11 integration tests pass, repeatedly, against PostgreSQL 16 with the repo's real schema and a generated Prisma client.
+- Each fix was checked by putting the original bug back and confirming a test fails. This covered issues 3, 4, 5, 6, 7, 9, 10, 11 and 12.
+- The patched backend was installed fresh from the zip and its unit tests run there.
 
-Not checked: running against a live PostgreSQL database, because Prisma's engine binaries couldn't be downloaded in the build environment. The route uses only standard Prisma calls (`groupBy` with `_count`, `_avg`, `_min` and `_max`, plus `findMany` and `count`), but run the four endpoints once against your seeded database to confirm.
+Not checked: the project's own `new PrismaClient()` with the standard Prisma query engine, because the engine binary could not be downloaded in the build environment. The verification used Prisma's driver adapter for `pg` with the same generated client and the same queries. Run `npm test` with a test database on your machine to confirm with the standard engine.
