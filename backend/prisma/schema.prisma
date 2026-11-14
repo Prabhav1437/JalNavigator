@@ -28,6 +28,8 @@ model Complaint {
   longitude   Float?
   status      String   @default("Pending")
   createdAt   DateTime @default(now())
+  @@index([createdAt])
+  farmerAccess FarmerComplaintAccess?
 }
 
 model SensorReading {
@@ -38,6 +40,9 @@ model SensorReading {
   pressure   Float
   recordedAt DateTime @default(now())
   asset      Asset    @relation(fields: [assetId], references: [id])
+  @@index([recordedAt])
+  @@index([assetId, recordedAt])
+  @@index([assetId, recordedAt(sort: Desc), id(sort: Desc)])
 }
 
 model Alert {
@@ -48,4 +53,24 @@ model Alert {
   status    String   @default("Open")
   createdAt DateTime @default(now())
   asset     Asset    @relation(fields: [assetId], references: [id])
+  @@index([createdAt])
+  @@index([assetId, createdAt])
+}
+
+model FarmerComplaintAccess {
+  id             Int       @id @default(autoincrement())
+  complaintId    Int       @unique
+  token          String
+  idempotencyKey String?   @unique
+  requestHash    String?
+  createdAt      DateTime  @default(now())
+  complaint      Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+}
+
+model FarmerRateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
 }

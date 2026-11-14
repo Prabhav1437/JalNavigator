@@ -24,6 +24,17 @@
 | `POST` | `/api/sensors/simulate` | Generate simulated telemetry readings and threshold alerts |
 | `GET` | `/api/alerts` | Retrieve active and resolved alerts |
 | `PUT` | `/api/alerts/:id` | Update alert status |
+| `GET` | `/api/analytics` | Analytics endpoint directory |
+| `GET` | `/api/analytics/summary` | Aggregate metrics by asset, complaint, and alert status |
+| `GET` | `/api/analytics/readings` | Min, average, and max telemetry per asset |
+| `GET` | `/api/analytics/villages` | Per-village asset health and open alert counts |
+| `GET` | `/api/analytics/trends` | Daily alert, complaint, and telemetry trends |
+| `GET` | `/api/farmer` | Farmer API directory and multilingual support |
+| `GET` | `/api/farmer/villages` | Village list with water supply status |
+| `GET` | `/api/farmer/villages/:name` | Village water points and notices |
+| `GET` | `/api/farmer/nearby` | Nearest operational drinking water points |
+| `POST` | `/api/farmer/complaints` | Register citizen complaint with tracking token |
+| `GET` | `/api/farmer/complaints/:id` | Check complaint status using tracking token |
 
 ---
 
@@ -255,7 +266,7 @@ Generates simulated telemetry values (water level, flow rate, pressure). Automat
 Returns system anomaly alerts.
 
 ### `PUT /api/alerts/:id`
-Resolves an alert.
+Updates alert status.
 
 **Request Body**:
 ```json
@@ -263,4 +274,30 @@ Resolves an alert.
   "status": "Resolved"
 }
 ```
+
+---
+
+## 7. Analytics API
+
+Four read-only endpoints under `/api/analytics` for administration and performance tracking. For full parameter specifications, query filters, caching behavior, and examples, refer to [ANALYTICS_API.md](file:///Users/apple/codes/projects/JalNavigator/docs/ANALYTICS_API.md).
+
+- `GET /api/analytics` - Directory of analytics endpoints.
+- `GET /api/analytics/summary` - Grouped counts of assets, complaints, and alerts.
+- `GET /api/analytics/readings` - Per-asset water level, flow rate, and pressure metrics (`?days=`, `?assetId=`).
+- `GET /api/analytics/villages` - Per-village asset health and open alert counts.
+- `GET /api/analytics/trends` - Daily alerts, complaints, and readings for the last N days (`?days=`).
+
+---
+
+## 8. Farmer & Citizen API
+
+Public, bilingual (English and Hindi via `?lang=en` or `?lang=hi`) endpoints designed for villagers and farmers. For complete schema details, rate limits, and error formats, refer to [FARMER_API.md](file:///Users/apple/codes/projects/JalNavigator/docs/FARMER_API.md).
+
+- `GET /api/farmer` - Directory of farmer endpoints and complaint categories.
+- `GET /api/farmer/villages` - Status summary of village water supplies (`?q=`, `?limit=`).
+- `GET /api/farmer/villages/:name` - Water points, maintenance notices, and operating conditions for a village.
+- `GET /api/farmer/nearby` - Working water points nearest to given GPS coordinates (`?lat=`, `?lon=`, `?limit=`).
+- `POST /api/farmer/complaints` - Register a grievance; returns a sequential complaint ID and a secret tracking code (`Idempotency-Key` supported).
+- `GET /api/farmer/complaints/:id` - Query complaint progress using `X-Complaint-Token` header.
+
 

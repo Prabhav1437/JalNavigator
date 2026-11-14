@@ -159,7 +159,7 @@ export default function Complaints() {
                 if (item.status === 'Resolved') badgeClass = 'badge-resolved';
 
                 const locationText =
-                  item.latitude && item.longitude
+                  item.latitude != null && item.longitude != null
                     ? `Coordinates: ${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`
                     : 'Location: Not provided';
 

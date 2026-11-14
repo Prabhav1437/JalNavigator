@@ -131,6 +131,20 @@ Detailed database documentation, schema specifications, and constraints are avai
 - Real-time backend connectivity status indicator.
 - Live JSON response inspection.
 
+### 6. Dark / Light Theme Switching
+- One-click dark mode toggle in the navigation sidebar.
+- Persists user theme preference across browser sessions (`localStorage`).
+- Custom inverted high-contrast styling for the Leaflet GIS map with preserved asset marker colors.
+
+### 7. Administrative Analytics & Telemetry Aggregation
+- Four analytical endpoints (`/api/analytics`) providing rolling averages, telemetry min/max, per-village asset health, and daily trend buckets.
+- Concurrent request caching with in-flight request coalescing.
+
+### 8. Citizen & Farmer Public API
+- Multilingual public endpoints (`/api/farmer`, supporting English and Hindi via `?lang=en` or `?lang=hi`).
+- Village-level water point queries, nearby operational water locator, and grievance submission with idempotency keys and secret tracking tokens.
+- Shared database-backed rate limiting.
+
 ---
 
 ## Technology Stack
@@ -307,6 +321,17 @@ To build the React application for production and serve everything from Express:
 | `POST` | `/api/sensors/simulate` | Generate simulated readings and evaluate alerts |
 | `GET` | `/api/alerts` | List system alerts |
 | `PUT` | `/api/alerts/:id` | Update alert status |
+| `GET` | `/api/analytics` | Analytics endpoint directory |
+| `GET` | `/api/analytics/summary` | Summary counts of assets, complaints, and alerts |
+| `GET` | `/api/analytics/readings` | Min, avg, max telemetry per asset |
+| `GET` | `/api/analytics/villages` | Per-village asset health and open alert counts |
+| `GET` | `/api/analytics/trends` | Daily alert, complaint, and telemetry trends |
+| `GET` | `/api/farmer` | Farmer API directory and supported languages |
+| `GET` | `/api/farmer/villages` | List villages with water supply status |
+| `GET` | `/api/farmer/villages/:name` | Water points and supply notices for a village |
+| `GET` | `/api/farmer/nearby` | Nearest operational drinking water points |
+| `POST` | `/api/farmer/complaints` | Submit grievance with tracking token |
+| `GET` | `/api/farmer/complaints/:id` | Track grievance status using tracking token |
 
 Full API specifications with request and response payloads are available in [docs/API.md](docs/API.md).
 

@@ -12,6 +12,7 @@ JalNavigator uses PostgreSQL as its primary relational database managed via Pris
 erDiagram
     Asset ||--o{ SensorReading : "records telemetry"
     Asset ||--o{ Alert : "triggers"
+    Complaint ||--o| FarmerComplaintAccess : "tracks access"
 
     Asset {
         Int id PK "Primary Key"
@@ -50,6 +51,21 @@ erDiagram
         String severity "Critical or Warning"
         String status "Open or Resolved"
         DateTime createdAt "Alert timestamp"
+    }
+
+    FarmerComplaintAccess {
+        Int id PK "Primary Key"
+        Int complaintId FK "Unique Foreign Key to Complaint"
+        String token "Secret tracking code"
+        String idempotencyKey "Unique retry token"
+        String requestHash "Normalized request payload hash"
+        DateTime createdAt "Creation timestamp"
+    }
+
+    FarmerRateLimit {
+        String key PK "Client IP or subnet identifier"
+        Int count "Request counter"
+        DateTime resetAt "Window reset timestamp"
     }
 ```
 
@@ -124,6 +140,33 @@ Stores threshold abnormality events triggered by automated telemetry analysis.
 
 ---
 
+### 5. `FarmerComplaintAccess` Model
+
+Stores secure tracking codes and idempotency metadata for farmer grievance submissions.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `id` | `Int` | `PRIMARY KEY`, `AUTOINCREMENT` | Unique access record identifier |
+| `complaintId` | `Int` | `UNIQUE`, `FOREIGN KEY(Complaint.id)`, `ON DELETE CASCADE` | Associated complaint identifier |
+| `token` | `String` | `NOT NULL` | 32-character tracking token |
+| `idempotencyKey` | `String` | `UNIQUE`, `NULLABLE` | Client idempotency key for safe retries |
+| `requestHash` | `String` | `NULLABLE` | SHA256 hash of cleaned request payload |
+| `createdAt` | `DateTime` | `NOT NULL`, `DEFAULT(now())` | Creation timestamp |
+
+---
+
+### 6. `FarmerRateLimit` Model
+
+Tracks rate limits for public citizen complaint endpoints.
+
+| Column | Type | Constraints | Description |
+| :--- | :--- | :--- | :--- |
+| `key` | `String` | `PRIMARY KEY` | Client IP address or IPv6 subnet hash |
+| `count` | `Int` | `NOT NULL` | Submission count in active window |
+| `resetAt` | `DateTime` | `NOT NULL` | Timestamp when limit window resets |
+
+---
+
 ## Prisma Schema Definition
 
 The database schema is defined in `backend/prisma/schema.prisma`:
@@ -159,6 +202,8 @@ model Complaint {
   longitude   Float?
   status      String   @default("Pending")
   createdAt   DateTime @default(now())
+  @@index([createdAt])
+  farmerAccess FarmerComplaintAccess?
 }
 
 model SensorReading {
@@ -169,6 +214,9 @@ model SensorReading {
   pressure   Float
   recordedAt DateTime @default(now())
   asset      Asset    @relation(fields: [assetId], references: [id])
+  @@index([recordedAt])
+  @@index([assetId, recordedAt])
+  @@index([assetId, recordedAt(sort: Desc), id(sort: Desc)])
 }
 
 model Alert {
@@ -179,6 +227,26 @@ model Alert {
   status    String   @default("Open")
   createdAt DateTime @default(now())
   asset     Asset    @relation(fields: [assetId], references: [id])
+  @@index([createdAt])
+  @@index([assetId, createdAt])
+}
+
+model FarmerComplaintAccess {
+  id             Int       @id @default(autoincrement())
+  complaintId    Int       @unique
+  token          String
+  idempotencyKey String?   @unique
+  requestHash    String?
+  createdAt      DateTime  @default(now())
+  complaint      Complaint @relation(fields: [complaintId], references: [id], onDelete: Cascade)
+}
+
+model FarmerRateLimit {
+  key     String   @id
+  count   Int
+  resetAt DateTime
+
+  @@index([resetAt])
 }
 ```
 

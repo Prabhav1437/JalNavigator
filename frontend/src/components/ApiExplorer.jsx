@@ -34,6 +34,10 @@ export default function ApiExplorer() {
       else if (endpoint.path === '/api/sensors') resData = await api.getSensors();
       else if (endpoint.path === '/api/alerts') resData = await api.getAlerts();
       else if (endpoint.path === '/api/sensors/simulate') resData = await api.simulateSensor();
+      else if (endpoint.method === 'GET' && !endpoint.path.includes(':')) {
+        const res = await fetch(endpoint.path);
+        resData = await res.json();
+      }
       else resData = { message: 'Method requires payload or specific ID', path: endpoint.path };
 
       setTestResult({

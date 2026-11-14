@@ -4,6 +4,7 @@ import MapView from './components/MapView';
 import Monitoring from './components/Monitoring';
 import Complaints from './components/Complaints';
 import ApiExplorer from './components/ApiExplorer';
+import ThemeToggle from './components/ThemeToggle';
 import api from './services/api';
 
 export default function App() {
@@ -55,6 +56,8 @@ export default function App() {
             API Explorer
           </button>
         </nav>
+
+        <ThemeToggle />
 
         <div style={{ marginTop: 'auto', padding: '16px 20px', borderTop: '1px solid #1e293b', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '8px', color: '#94a3b8' }}>
           <span style={{
